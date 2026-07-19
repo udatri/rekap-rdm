@@ -1,0 +1,7 @@
+# Lindungi file sensitif dari akses langsung
+<FilesMatch "(?i)^(config\.php|config\.example\.php|fix_permissions\.php)$">
+  Require all denied
+</FilesMatch>
+<FilesMatch "(?i)\.(json|sql|bak|log|env)$">
+  Require all denied
+</FilesMatch>
