@@ -16,9 +16,10 @@ final class IjazahService
      */
     public const MAPEL_ORDER = [
         'QH', 'AA', 'FIK', 'SKI', 'PP', 'BINDO', 'MTK', 'IPAT', 'IPST',
-        'BING', 'BAR', 'PJOK', 'INFO', 'SEJ', 'SB',
+        'BING', 'BAR', 'PJOK', 'INFO', 'SEJ', 'SB', 'PRA',
         // seterusnya
-        'INFOP', 'Jawa', 'Tahfi', 'SOS', 'EKO', 'GEO', 'BIO', 'KIM', 'FIS', 'MTL',
+        'INFOP', 'Jawa', 'Tahfi', 'BTAQ', 'P5', 'KO', 'SOS', 'EKO', 'GEO', 'ANT', 'BIO', 'KIM', 'FIS', 'MTL',
+        'BIDTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP',
         'APHP_DKV_TB', 'DKV', 'APHP', 'ABAR', 'BARTL', 'IHad', 'ITaf', 'UFiq', 'TB', 'SejL', 'riset',
     ];
 
@@ -50,6 +51,16 @@ final class IjazahService
         'SEJ' => 'SI',
         'SejL' => 'SejL',
         'SB' => 'SP',
+        'PRA' => 'PRA',
+        'BTAQ' => 'BTAQ',
+        'P5' => 'P5',
+        'KO' => 'KO',
+        'ANT' => 'ANT',
+        'BIDTL' => 'BIDTL',
+        'BIGTL' => 'BIGTL',
+        'BKOR' => 'BKOR',
+        'BMAND' => 'BMAND',
+        'BJEP' => 'BJEP',
         'APHP' => 'APHP',
         'DKV' => 'DKV',
         'APHP_DKV_TB' => 'APHP/DKV/TB',

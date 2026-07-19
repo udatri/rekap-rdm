@@ -819,11 +819,11 @@ final class RekapService
         $kelompokDef = [
             'umum' => [
                 'judul' => 'Kelompok Mata Pelajaran Umum',
-                'kode' => ['QH', 'AA', 'FIK', 'SKI', 'BAR', 'PP', 'BINDO', 'MTK', 'IPAT', 'IPST', 'BING', 'PJOK', 'SEJ', 'INFO', 'SB', 'Jawa', 'Tahfi', 'riset'],
+                'kode' => ['QH', 'AA', 'FIK', 'SKI', 'BAR', 'PP', 'BINDO', 'MTK', 'IPAT', 'IPST', 'BING', 'PJOK', 'SEJ', 'INFO', 'SB', 'PRA', 'Jawa', 'Tahfi', 'BTAQ', 'P5', 'KO', 'riset'],
             ],
             'pilihan' => [
                 'judul' => 'Kelompok Mata Pelajaran Pilihan',
-                'kode' => ['INFOP', 'SOS', 'EKO', 'GEO', 'BIO', 'KIM', 'FIS', 'MTL', 'ABAR', 'BARTL', 'IHad', 'ITaf', 'UFiq', 'SejL'],
+                'kode' => ['INFOP', 'SOS', 'EKO', 'GEO', 'ANT', 'BIO', 'KIM', 'FIS', 'MTL', 'BIDTL', 'ABAR', 'BARTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP', 'IHad', 'ITaf', 'UFiq', 'SejL'],
             ],
             'vokasi' => [
                 'judul' => 'Kelompok Mata Pelajaran Vokasi / Keterampilan',
