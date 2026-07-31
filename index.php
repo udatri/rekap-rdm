@@ -17,7 +17,7 @@ $csrf = Security::csrfToken();
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/style.css?v=20260801w" />
+  <link rel="stylesheet" href="assets/style.css?v=20260801x" />
 </head>
 <body>
   <div class="app">
@@ -96,7 +96,6 @@ $csrf = Security::csrfToken();
       </label>
       <div class="filter-actions">
         <button type="button" class="btn ghost" id="btnCariSiswa" title="Cari siswa by nama / NISN">Cari siswa</button>
-        <button type="button" class="btn primary" id="btnApply">Tampilkan</button>
         <button type="button" class="btn ghost" id="btnReset">Reset</button>
       </div>
     </section>
@@ -140,7 +139,7 @@ $csrf = Security::csrfToken();
           <section>
             <h3>2. Filter &amp; pencarian</h3>
             <ul>
-              <li>Pilih <strong>tahun ajaran</strong>, <strong>semester</strong>, dan <strong>kelas/tingkat</strong> sebelum menampilkan rekap agar aplikasi tetap cepat.</li>
+              <li>Pilih <strong>tahun ajaran</strong>, <strong>semester</strong>, atau <strong>kelas/tingkat</strong> — data langsung ditampilkan tanpa tombol tambahan.</li>
               <li>Gunakan tombol <strong>Cari siswa</strong> untuk mencari nama / NISN / NIS, lalu langsung buka rekap per siswa.</li>
             </ul>
           </section>
@@ -186,6 +185,6 @@ $csrf = Security::csrfToken();
       <p>Sumber data: folder <code>semua/</code> · Filter: tahun ajaran, semester, kelas, ID siswa</p>
     </footer>
   </div>
-  <script src="assets/app.js?v=20260801w" defer></script>
+  <script src="assets/app.js?v=20260801x" defer></script>
 </body>
 </html>

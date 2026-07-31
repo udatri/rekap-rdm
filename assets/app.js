@@ -2646,10 +2646,30 @@
   let loadTimer = null;
   function loadViewSoon() {
     clearTimeout(loadTimer);
-    loadTimer = setTimeout(loadView, 220);
+    loadTimer = setTimeout(loadView, 80);
   }
 
-  $('#btnApply').addEventListener('click', loadView);
+  function filterModesAutoLoad() {
+    return state.mode === 'per_semester'
+      || state.mode === 'semua_semester'
+      || state.mode === 'per_siswa'
+      || state.mode === 'nilai_ijazah';
+  }
+
+  function onFilterDropdownChange(id) {
+    if (!filterModesAutoLoad()) return;
+    if (id === 'fKelas') fillSiswaSelect();
+    if (id === 'fSiswa' && $(`#${id}`).value && state.mode !== 'nilai_ijazah') {
+      if (state.mode !== 'per_siswa') {
+        setMode('per_siswa');
+      } else {
+        loadViewSoon();
+      }
+      return;
+    }
+    loadViewSoon();
+  }
+
   $('#btnReset').addEventListener('click', () => {
     ['fTahun', 'fSemester', 'fKelas', 'fSiswa'].forEach((id) => {
       $(`#${id}`).value = '';
@@ -3284,20 +3304,15 @@
     }
   });
 
-  // Langsung tampil saat dropdown berubah
-  ['fTahun', 'fSemester', 'fKelas', 'fSiswa'].forEach((id) => {
-    $(`#${id}`).addEventListener('change', () => {
-      if (state.mode === 'kelola_kelas' || isUjianMode() || state.mode === 'impor_data' || state.mode === 'pengaturan_sekolah' || state.mode === 'kelola_user' || state.mode === 'kktp') return;
-      if (id === 'fKelas') {
-        fillSiswaSelect();
-      }
-      if (id === 'fSiswa' && $(`#${id}`).value && state.mode !== 'nilai_ijazah') {
-        setMode('per_siswa');
-        return;
-      }
-      loadViewSoon();
+  // Dropdown filter: langsung muat data tanpa tombol Tampilkan
+  const filterPanel = $('#filterPanel');
+  if (filterPanel) {
+    filterPanel.addEventListener('change', (e) => {
+      const id = e.target?.id;
+      if (!id || !['fTahun', 'fSemester', 'fKelas', 'fSiswa'].includes(id)) return;
+      onFilterDropdownChange(id);
     });
-  });
+  }
 
   const selSekolah = $('#fSekolahAktif');
   if (selSekolah) {

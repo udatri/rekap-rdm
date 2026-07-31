@@ -41,7 +41,7 @@ try {
         if ($v === null || $v === '' || !is_numeric($v)) {
             return '';
         }
-        return number_format((float) $v, 1, ',', '');
+        return number_format((float) round((float) $v), 0, ',', '');
     };
 
     $esc = static fn (string $t): string => htmlspecialchars($t, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -52,7 +52,8 @@ try {
         }
         $tingkat = $tingkat !== null ? strtoupper($tingkat) : '';
         $thr = ($tingkat !== '' && isset($kktpMap[$tingkat])) ? $kktpMap[$tingkat] : null;
-        if ($thr !== null && (float) $v < $thr) {
+        $n = (float) round((float) $v);
+        if ($thr !== null && $n < $thr) {
             return ' nilai-excel nilai-bawah-kktp';
         }
         return ' nilai-excel';
