@@ -310,7 +310,7 @@ $esc = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SU
       ?>
       <div class="login-recent">
         <h2><?= $esc($judulAvail) ?></h2>
-        <p style="margin:0 0 0.55rem;font-size:0.78rem;color:#7a6a58;line-height:1.35">Pilih sekolah yang belum terpakai, lalu masuk dengan akun di samping. Setelah dipakai, data Excel &amp; nama otomatis reset dalam 7 hari (kecuali Sekolah 1). Sekolah terpakai tetap bisa login manual.</p>
+        <p style="margin:0 0 0.55rem;font-size:0.78rem;color:#7a6a58;line-height:1.35">Pilih sekolah yang belum terpakai, lalu masuk dengan akun di samping dan password <code>Admin123</code>. Setelah dipakai, data Excel &amp; nama otomatis reset dalam 7 hari (kecuali Sekolah 1). Sekolah terpakai tetap bisa login manual.</p>
         <ul class="login-recent-list">
           <?php foreach ($available as $r): ?>
             <li>

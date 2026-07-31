@@ -13,6 +13,7 @@ require_once __DIR__ . '/SekolahStore.php';
 require_once __DIR__ . '/KonversiStore.php';
 require_once __DIR__ . '/KonversiService.php';
 require_once __DIR__ . '/RaporNilaiStore.php';
+require_once __DIR__ . '/KktpStore.php';
 
 /**
  * Cache & layanan rekap nilai.
@@ -28,6 +29,7 @@ final class RekapService
     private KonversiStore $konversiStore;
     private KonversiService $konversiService;
     private RaporNilaiStore $raporNilaiStore;
+    private KktpStore $kktpStore;
 
     public function __construct(
         ?string $sourcePath = null,
@@ -51,6 +53,7 @@ final class RekapService
         $this->konversiStore = new KonversiStore($dataDir . '/konversi_nilai.json');
         $this->konversiService = new KonversiService($this->konversiStore);
         $this->raporNilaiStore = new RaporNilaiStore($dataDir . '/rapor_nilai.json');
+        $this->kktpStore = new KktpStore($dataDir . '/kktp_settings.json');
         $this->sekolahId = Config::activeSekolahId();
     }
 
@@ -76,6 +79,53 @@ final class RekapService
     public function ijazahService(): IjazahService
     {
         return $this->ijazahService;
+    }
+
+    public function kktpStore(): KktpStore
+    {
+        return $this->kktpStore;
+    }
+
+    /** @return list<string> nama kelas dari data Excel/cache */
+    public function kelasNamesFromData(array $data): array
+    {
+        $kelas = [];
+        foreach ($data['semesters'] ?? [] as $s) {
+            $nama = trim((string) ($s['kelas'] ?? ''));
+            if ($nama !== '') {
+                $kelas[$nama] = true;
+            }
+        }
+        $names = array_keys($kelas);
+        sort($names);
+        return $names;
+    }
+
+    /**
+     * @return array{
+     *   jenjang:list<string>,
+     *   tingkat:list<array{kode:string,label:string,nilai:float}>,
+     *   default:float,
+     *   updated_at:?string
+     * }
+     */
+    public function getKktp(array $data): array
+    {
+        return $this->kktpStore->getForKelas($this->kelasNamesFromData($data));
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array{
+     *   jenjang:list<string>,
+     *   tingkat:list<array{kode:string,label:string,nilai:float}>,
+     *   default:float,
+     *   updated_at:?string
+     * }
+     */
+    public function saveKktp(array $data, array $input): array
+    {
+        return $this->kktpStore->save($input, $this->kelasNamesFromData($data));
     }
 
     public function importService(): ImportService
@@ -114,15 +164,38 @@ final class RekapService
         return $this->sekolahStore->activeForApi();
     }
 
+    /** @var array<string, array>|null memo per request */
+    private static ?array $dataMemo = null;
+    private static ?string $dataMemoPath = null;
+    private static ?int $dataMemoMtime = null;
+
     public function ensureData(bool $force = false): array
     {
+        if ($force) {
+            self::$dataMemo = null;
+            self::$dataMemoPath = null;
+            self::$dataMemoMtime = null;
+        }
+
+        $cacheMtime = is_readable($this->cachePath) ? (filemtime($this->cachePath) ?: 0) : 0;
+        if (
+            !$force
+            && self::$dataMemo !== null
+            && self::$dataMemoPath === $this->cachePath
+            && self::$dataMemoMtime === $cacheMtime
+        ) {
+            return self::$dataMemo;
+        }
+
         if (!$force && is_readable($this->cachePath)) {
             $sourceMtime = $this->sourceMtime();
-            $cacheMtime = filemtime($this->cachePath) ?: 0;
             if ($cacheMtime >= $sourceMtime) {
                 $json = file_get_contents($this->cachePath);
                 $data = json_decode($json ?: '', true);
                 if (is_array($data) && isset($data['records']) && ($data['source_type'] ?? '') === 'folder') {
+                    self::$dataMemo = $data;
+                    self::$dataMemoPath = $this->cachePath;
+                    self::$dataMemoMtime = $cacheMtime;
                     return $data;
                 }
             }
@@ -155,10 +228,15 @@ final class RekapService
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
+        // Compact JSON: lebih kecil & lebih cepat dibaca ulang
         file_put_contents(
             $this->cachePath,
-            json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            json_encode($data, JSON_UNESCAPED_UNICODE)
         );
+        $cacheMtime = filemtime($this->cachePath) ?: time();
+        self::$dataMemo = $data;
+        self::$dataMemoPath = $this->cachePath;
+        self::$dataMemoMtime = $cacheMtime;
         return $data;
     }
 
@@ -218,6 +296,34 @@ final class RekapService
         }
         ksort($semesterKeMap);
 
+        // Pakai indeks siswa dari cache jika sudah ada (lebih cepat)
+        $students = [];
+        if (!empty($data['students']) && is_array($data['students'])) {
+            foreach ($data['students'] as $st) {
+                if (!is_array($st)) {
+                    continue;
+                }
+                $students[] = [
+                    'id' => (string) ($st['nisn'] ?? $st['id'] ?? ''),
+                    'nisn' => (string) ($st['nisn'] ?? $st['id'] ?? ''),
+                    'nama' => (string) ($st['nama'] ?? ''),
+                    'jk' => (string) ($st['jk'] ?? ''),
+                    'kelas_list' => array_values($st['kelas_list'] ?? []),
+                ];
+            }
+            usort($students, static fn ($a, $b) => strcasecmp($a['nama'], $b['nama']));
+        } else {
+            $students = $this->buildNormalizedStudentIndex($data['records'] ?? []);
+            // Ringkas field untuk payload filter
+            $students = array_map(static fn ($st) => [
+                'id' => (string) ($st['id'] ?? ''),
+                'nisn' => (string) ($st['nisn'] ?? ''),
+                'nama' => (string) ($st['nama'] ?? ''),
+                'jk' => (string) ($st['jk'] ?? ''),
+                'kelas_list' => array_values($st['kelas_list'] ?? []),
+            ], $students);
+        }
+
         return [
             'madrasah' => $this->sekolahStore->active()['nama']
                 ?: ($data['madrasah'] ?? Config::get('madrasah', 'MAN 4 Sleman')),
@@ -229,8 +335,8 @@ final class RekapService
             'semester_ke' => array_values($semesterKeMap),
             'kelas' => $kelasList,
             'kelas_detail' => $kelasMerged,
-            'students' => $this->buildNormalizedStudentIndex($data['records'] ?? []),
-            'students_ujian_teori' => $this->ijazahService->studentsWithUjianTeori($data),
+            'students' => $students,
+            'kktp' => $this->getKktp($data),
             'imported_at' => $data['imported_at'] ?? null,
             'source' => $data['source'] ?? null,
             'source_files' => count($data['source_files'] ?? []),
@@ -409,6 +515,7 @@ final class RekapService
             unset($s);
 
             $g['siswa'] = array_values($g['siswa']);
+            // Rank berdasar jumlah nilai (tinggi → rendah)
             usort($g['siswa'], static function ($a, $b) {
                 $ja = $a['jumlah'] ?? -INF;
                 $jb = $b['jumlah'] ?? -INF;
@@ -422,6 +529,8 @@ final class RekapService
                 $s['rank'] = $rank++;
             }
             unset($s);
+            // Tampilan awal: abjad nama
+            usort($g['siswa'], static fn ($a, $b) => strcasecmp((string) $a['nama'], (string) $b['nama']));
             $g['ringkasan'] = $this->summaryStats(array_column($g['siswa'], 'jumlah'), array_column($g['siswa'], 'rata_rata'));
         }
         unset($g);
@@ -439,6 +548,7 @@ final class RekapService
             'filters' => $q,
             'total_records' => count($rows),
             'total_siswa' => $totalSiswa,
+            'kktp' => $this->getKktp($data),
             'groups' => $list,
         ];
     }
@@ -588,6 +698,7 @@ final class RekapService
             ];
         }
 
+        // Rank berdasar rata keseluruhan
         usort($siswa, static function ($a, $b) {
             $ra = $a['rata_rata_semua'] ?? -INF;
             $rb = $b['rata_rata_semua'] ?? -INF;
@@ -603,10 +714,14 @@ final class RekapService
         }
         unset($s);
 
+        // Tampilan awal: abjad nama
+        usort($siswa, static fn ($a, $b) => strcasecmp((string) $a['nama'], (string) $b['nama']));
+
         return [
             'mode' => 'semua_semester',
             'filters' => $q,
             'total_siswa' => count($siswa),
+            'kktp' => $this->getKktp($data),
             'ringkasan' => $this->summaryStats(
                 array_column($siswa, 'total_jumlah'),
                 array_column($siswa, 'rata_rata_semua')
@@ -725,6 +840,7 @@ final class RekapService
         return [
             'mode' => 'per_siswa',
             'filters' => $q,
+            'kktp' => $this->getKktp($data),
             'siswa' => [
                 'id' => $last['id'],
                 'nisn' => $last['nisn'],
@@ -877,7 +993,8 @@ final class RekapService
                     'rataan' => $rataan,
                     'ujian_praktek' => $praktek !== null ? round((float) $praktek, 1) : null,
                     'ujian' => $teori !== null ? round((float) $teori, 1) : null,
-                    'nilai_akhir' => $akhir !== null ? round((float) $akhir, 1) : null,
+                    'has_teori' => $teori !== null,
+                    'nilai_akhir' => $akhir !== null ? (float) round((float) $akhir, 0) : null,
                 ];
             }
             if ($rowsOut !== []) {
@@ -917,7 +1034,8 @@ final class RekapService
                 'rataan' => $rataan,
                 'ujian_praktek' => $praktek !== null ? round((float) $praktek, 1) : null,
                 'ujian' => $teori !== null ? round((float) $teori, 1) : null,
-                'nilai_akhir' => $akhir !== null ? round((float) $akhir, 1) : null,
+                'has_teori' => $teori !== null,
+                'nilai_akhir' => $akhir !== null ? (float) round((float) $akhir, 0) : null,
             ];
         }
         if ($lain !== []) {

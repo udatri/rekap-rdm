@@ -13,10 +13,247 @@
     roles: {},
     userEditId: '',
     csrf: '',
+    viewData: null,
+    tableSort: {
+      per_semester: { key: 'nama', dir: 'asc' },
+      semua_semester: { key: 'nama', dir: 'asc' },
+      nilai_ijazah: { key: 'nama', dir: 'asc' },
+    },
+    apiCache: Object.create(null),
+    abortCtrl: null,
+    loadToken: 0,
+    renderToken: 0,
   };
 
   function can(cap) {
     return !!state.caps[cap];
+  }
+
+  /** Map kode tingkat → nilai KKTP dari payload / cache filter. */
+  function kktpNilaiMap(data) {
+    const src = (data && data.kktp) || (state.filters && state.filters.kktp) || {};
+    const map = {};
+    (src.tingkat || []).forEach((t) => {
+      if (!t || t.kode == null) return;
+      const n = Number(t.nilai);
+      if (!Number.isNaN(n)) map[String(t.kode).toUpperCase()] = n;
+    });
+    return map;
+  }
+
+  function normalizeTingkatToken(token) {
+    const t = String(token || '').trim().toUpperCase();
+    const roman = {
+      I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6,
+      VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12,
+    };
+    if (roman[t]) return t;
+    if (!/^\d{1,2}$/.test(t)) return null;
+    const n = Number(t);
+    const map = {
+      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
+      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+    };
+    return map[n] || null;
+  }
+
+  function parseTingkatKelas(kelas) {
+    const nama = String(kelas || '').trim();
+    if (!nama) return null;
+    let m = nama.match(/^(XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\b/i);
+    if (m) return m[1].toUpperCase();
+    m = nama.match(/\bkelas\s*(XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I|\d{1,2})\b/i);
+    if (m) return normalizeTingkatToken(m[1]);
+    m = nama.match(/^(\d{1,2})\b/);
+    if (m) return normalizeTingkatToken(m[1]);
+    return null;
+  }
+
+  /** Interval predikat dari KKTP (rumus RDM). KKTP 75 → 0–74 / 75–82 / 83–91 / 92–100. */
+  function kktpIntervals(kktp) {
+    const k = Math.max(0, Math.min(100, Number(kktp)));
+    if (!Number.isFinite(k)) return null;
+    if (k >= 100) {
+      return {
+        kktp: 100,
+        belum: { min: 0, max: 99, label: 'Belum Tercapai' },
+        cukup: { min: 100, max: 100, label: 'Cukup' },
+        baik: { min: 100, max: 100, label: 'Baik' },
+        sangat_baik: { min: 100, max: 100, label: 'Sangat Baik' },
+      };
+    }
+    const span = 100 - k;
+    let cukupMax = k + Math.round(span / 3) - 1;
+    let baikMax = k + Math.round((2 * span) / 3) - 1;
+    cukupMax = Math.max(k, Math.min(99, cukupMax));
+    baikMax = Math.max(cukupMax + 1, Math.min(99, baikMax));
+    const belumMax = k > 0 ? Math.ceil(k) - 1 : 0;
+    return {
+      kktp: k,
+      belum: { min: 0, max: Math.max(0, belumMax), label: 'Belum Tercapai' },
+      cukup: { min: k, max: cukupMax, label: 'Cukup' },
+      baik: { min: cukupMax + 1, max: baikMax, label: 'Baik' },
+      sangat_baik: { min: Math.min(100, baikMax + 1), max: 100, label: 'Sangat Baik' },
+    };
+  }
+
+  function kktpPredikatBand(nilai, kktp) {
+    const n = Number(nilai);
+    const k = Number(kktp);
+    if (!Number.isFinite(n) || !Number.isFinite(k)) return null;
+    if (n < k) return 'belum';
+    const iv = kktpIntervals(k);
+    if (!iv) return null;
+    if (n <= iv.cukup.max) return 'cukup';
+    if (n <= iv.baik.max) return 'baik';
+    return 'sangat_baik';
+  }
+
+  function fmtIntervalBound(n) {
+    if (!Number.isFinite(Number(n))) return '—';
+    const x = Number(n);
+    return Number.isInteger(x) ? String(x) : String(Math.round(x * 100) / 100);
+  }
+
+  /** Sel nilai: font hitam (merah &lt; KKTP); opts.intervalCells = latar putih/biru/hijau. */
+  function excelScoreCell(v, kelasOrTingkat, kktpMap, digits = 0, opts = {}) {
+    if (v == null || v === '' || Number.isNaN(Number(v))) {
+      return `<td class="num">—</td>`;
+    }
+    let n = Number(v);
+    if (opts.roundInt === true || digits === 0) {
+      n = Math.round(n);
+    }
+    const key = String(kelasOrTingkat || '').toUpperCase();
+    const tingkat = (kktpMap && Object.prototype.hasOwnProperty.call(kktpMap, key))
+      ? key
+      : parseTingkatKelas(kelasOrTingkat);
+    const thr = tingkat != null && kktpMap ? kktpMap[tingkat] : null;
+    const band = thr != null ? kktpPredikatBand(n, thr) : null;
+    const plain = opts.plainKktp === true;
+    const intervalCells = opts.intervalCells === true;
+    let cls = 'nilai-excel';
+    if (band === 'belum') {
+      cls += ' nilai-bawah-kktp';
+      if (intervalCells) cls += ' nilai-cell-belum';
+    } else if (intervalCells) {
+      if (band === 'sangat_baik') cls += ' nilai-cell-sb';
+      else if (band === 'baik') cls += ' nilai-cell-baik';
+      else if (band === 'cukup') cls += ' nilai-cell-cukup';
+    } else if (!plain) {
+      if (band === 'sangat_baik') cls += ' nilai-sangat-baik';
+      else if (band === 'baik') cls += ' nilai-baik';
+    }
+    const title = band === 'belum'
+      ? `Belum Tercapai · di bawah KKTP tingkat ${tingkat} (${thr})`
+      : (thr != null
+        ? `${band === 'sangat_baik' ? 'Sangat Baik' : band === 'baik' ? 'Baik' : 'Cukup'} · KKTP ${tingkat}: ${thr}`
+        : 'Nilai rapor');
+    const text = (opts.roundInt === true || digits === 0)
+      ? fmt(n, 0)
+      : (opts.asRata ? fmtRata(n) : fmt(n, digits));
+    const inner = opts.strong ? `<strong>${text}</strong>` : text;
+    return `<td class="num ${cls}" title="${esc(title)}">${inner}</td>`;
+  }
+
+  function currentSort(mode = state.mode) {
+    if (!state.tableSort[mode]) {
+      state.tableSort[mode] = { key: 'nama', dir: 'asc' };
+    }
+    return state.tableSort[mode];
+  }
+
+  function sortBtn(mode, key, label) {
+    const s = currentSort(mode);
+    const active = s.key === key;
+    const arrow = !active ? '↕' : (s.dir === 'asc' ? '↑' : '↓');
+    const title = active
+      ? `Urut ${label} (${s.dir === 'asc' ? 'naik' : 'turun'}) — klik untuk balik`
+      : `Urutkan ${label}`;
+    return `<button type="button" class="sort-btn${active ? ' active' : ''}" data-sort-mode="${esc(mode)}" data-sort-key="${esc(key)}" title="${esc(title)}" aria-label="${esc(title)}">${arrow}</button>`;
+  }
+
+  function sortHeader(mode, key, label, thClass = '', title = '') {
+    const titleAttr = title ? ` title="${esc(title)}"` : '';
+    return `<th class="${thClass}"${titleAttr}><span class="th-sort"><span>${esc(label)}</span>${sortBtn(mode, key, label)}</span></th>`;
+  }
+
+  function mapelScoreOf(row, key) {
+    if (key.startsWith('score:')) {
+      const sub = key.slice('score:'.length);
+      const v = row?.scores?.[sub];
+      return v == null || Number.isNaN(Number(v)) ? null : Number(v);
+    }
+    if (key.startsWith('mapel:')) {
+      const kode = key.slice('mapel:'.length);
+      const v = row?.nilai_mapel?.[kode];
+      return v == null || Number.isNaN(Number(v)) ? null : Number(v);
+    }
+    if (key.startsWith('sem:')) {
+      const ke = Number(key.slice('sem:'.length));
+      const rowSem = (row?.semesters || []).find((x) => Number(x.semester_ke) === ke);
+      const v = rowSem?.rata_rata;
+      return v == null || Number.isNaN(Number(v)) ? null : Number(v);
+    }
+    return null;
+  }
+
+  function sortSiswaRows(list, key, dir) {
+    const mul = dir === 'asc' ? 1 : -1;
+    const rows = [...(list || [])];
+    const numKeys = new Set([
+      'jumlah', 'rata_rata', 'rank',
+      'total_jumlah', 'rata_rata_semua', 'rank_keseluruhan', 'semester_count',
+      'rata_ijazah', 'rata_rataan', 'rata_praktek', 'rata_teori', 'mapel_count',
+    ]);
+    const isMapelKey = key.startsWith('score:') || key.startsWith('mapel:') || key.startsWith('sem:');
+    rows.sort((a, b) => {
+      if (key === 'nama') {
+        const c = String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' });
+        return mul * c;
+      }
+      if (key === 'nisn' || key === 'nis' || key === 'kelas' || key === 'kelas_akhir') {
+        const c = String(a[key] || '').localeCompare(String(b[key] || ''), 'id', { sensitivity: 'base' });
+        if (c !== 0) return mul * c;
+        return String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' });
+      }
+      if (numKeys.has(key) || isMapelKey) {
+        const va = isMapelKey
+          ? mapelScoreOf(a, key)
+          : (a[key] == null || Number.isNaN(Number(a[key])) ? null : Number(a[key]));
+        const vb = isMapelKey
+          ? mapelScoreOf(b, key)
+          : (b[key] == null || Number.isNaN(Number(b[key])) ? null : Number(b[key]));
+        if (va == null && vb == null) {
+          return String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' });
+        }
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (va === vb) {
+          return String(a.nama || '').localeCompare(String(b.nama || ''), 'id', { sensitivity: 'base' });
+        }
+        return mul * (va < vb ? -1 : 1);
+      }
+      return 0;
+    });
+    return rows;
+  }
+
+  function applyTableSort(mode, key) {
+    const s = currentSort(mode);
+    if (s.key === key) {
+      s.dir = s.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      s.key = key;
+      // Nama/teks: A→Z; nilai: tinggi→rendah
+      s.dir = (key === 'nama' || key === 'nisn' || key === 'nis' || key === 'kelas' || key === 'kelas_akhir')
+        ? 'asc'
+        : 'desc';
+    }
+    if (!state.viewData) return;
+    if (mode === 'per_semester') renderPerSemester(state.viewData);
+    else if (mode === 'semua_semester') renderSemuaSemester(state.viewData);
+    else if (mode === 'nilai_ijazah') renderIjazahDaftar(state.viewData);
   }
 
   function setCsrf(token) {
@@ -89,17 +326,44 @@
     return p.toString();
   }
 
-  async function api(action, params = {}) {
+  function viewCacheKey(action, params = {}) {
+    return `${action}?${qs(params)}`;
+  }
+
+  function clearApiCache() {
+    state.apiCache = Object.create(null);
+  }
+
+  async function api(action, params = {}, opts = {}) {
+    const cacheable = opts.cache !== false
+      && !['refresh', 'health'].includes(action);
+    const key = viewCacheKey(action, params);
+    if (cacheable && state.apiCache[key]) {
+      return state.apiCache[key];
+    }
+
+    if (state.abortCtrl && opts.abort !== false) {
+      try { state.abortCtrl.abort(); } catch (_) { /* ignore */ }
+    }
+    const ctrl = opts.signal ? null : new AbortController();
+    if (ctrl) state.abortCtrl = ctrl;
+
     const url = `api.php?${qs({ action, ...params })}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      signal: opts.signal || ctrl?.signal,
+    });
     const json = await res.json();
     if (handleAuthError(json)) throw new Error(json.error || 'Unauthorized');
     if (!json.ok) throw new Error(json.error || 'Gagal memuat data');
     if (json.data?.csrf) setCsrf(json.data.csrf);
+    if (cacheable) state.apiCache[key] = json.data;
     return json.data;
   }
 
   async function apiPost(action, body = {}) {
+    clearApiCache();
     const res = await fetch('api.php', {
       method: 'POST',
       headers: {
@@ -269,17 +533,13 @@
     let list = siswaForKelas(kelas);
     let placeholder = 'Semua siswa';
 
-    // Nilai ijazah: hanya siswa yang punya nilai ujian teori
+    // Nilai ijazah: semua siswa (nilai akhir tetap tampil meski teori belum ada)
     if (state.mode === 'nilai_ijazah') {
-      const teoriIds = new Set(
-        (state.filters?.students_ujian_teori || []).map((s) => String(s.id || s.nisn || ''))
-      );
-      list = list.filter((s) => teoriIds.has(String(s.id || s.nisn || '')));
       placeholder = kelas
         ? (kelas.startsWith('tingkat:')
-          ? `Siswa tingkat ${kelas.slice('tingkat:'.length)} (punya ujian teori)`
-          : `Siswa kelas ${kelas} (punya ujian teori)`)
-        : 'Siswa dengan ujian teori';
+          ? `Siswa tingkat ${kelas.slice('tingkat:'.length)}`
+          : `Siswa kelas ${kelas}`)
+        : 'Semua siswa';
     } else if (kelas.startsWith('tingkat:')) {
       placeholder = `Siswa tingkat ${kelas.slice('tingkat:'.length)}`;
     } else if (kelas) {
@@ -360,61 +620,88 @@
       </div>`;
   }
 
+  function perSemesterPanelHtml(g, kktpMap, sort, mode) {
+    const subjects = g.subjects || [];
+    const head = subjects.map((s) => sortHeader(mode, `score:${s}`, s, 'num')).join('');
+    const siswa = sortSiswaRows(g.siswa || [], sort.key, sort.dir);
+    const body = siswa.map((s, i) => {
+      const scores = subjects.map((sub) => excelScoreCell(s.scores?.[sub], g.kelas, kktpMap, 0)).join('');
+      return `<tr>
+        <td class="center">${i + 1}</td>
+        <td>${esc(s.nis)}</td>
+        <td>${esc(s.nisn)}</td>
+        <td><button type="button" class="linkish" data-open-siswa="${esc(s.id)}">${esc(s.nama)}</button></td>
+        <td class="center">${esc(s.jk)}</td>
+        ${scores}
+        <td class="num"><strong>${fmt(s.jumlah, 0)}</strong></td>
+        ${excelScoreCell(s.rata_rata, g.kelas, kktpMap, 1, { asRata: true })}
+        <td class="center"><span class="badge rank">#${fmt(s.rank, 0)}</span></td>
+      </tr>`;
+    }).join('');
+
+    return `<section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>SEM ${g.semester_ke} · ${esc(g.semester)}</h2>
+          <p>Tahun ajaran ${esc(g.tahun_ajaran)} · Kelas ${esc(g.kelas)} · ${siswa.length} siswa</p>
+        </div>
+        ${statsHtml(g.ringkasan)}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="center">No</th>
+              <th>NIS</th>
+              <th>NISN</th>
+              ${sortHeader(mode, 'nama', 'Nama')}
+              <th class="center">JK</th>
+              ${head}
+              ${sortHeader(mode, 'jumlah', 'Jumlah', 'num')}
+              ${sortHeader(mode, 'rata_rata', 'Rata', 'num')}
+              ${sortHeader(mode, 'rank', 'Rank', 'center')}
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </section>`;
+  }
+
   function renderPerSemester(data) {
+    const token = ++state.renderToken;
     if (!data.groups.length) {
       view.innerHTML = `<div class="empty">Tidak ada data untuk filter ini.</div>`;
       return;
     }
 
-    view.innerHTML = data.groups.map((g) => {
-      const subjects = g.subjects || [];
-      const head = subjects.map((s) => `<th class="num">${esc(s)}</th>`).join('');
-      const body = g.siswa.map((s, i) => {
-        const scores = subjects.map((sub) => {
-          const v = s.scores?.[sub];
-          return `<td class="num">${v == null ? '—' : fmt(v, 0)}</td>`;
-        }).join('');
-        return `<tr>
-          <td class="center">${i + 1}</td>
-          <td>${esc(s.nis)}</td>
-          <td>${esc(s.nisn)}</td>
-          <td><button type="button" class="linkish" data-open-siswa="${esc(s.id)}">${esc(s.nama)}</button></td>
-          <td class="center">${esc(s.jk)}</td>
-          ${scores}
-          <td class="num"><strong>${fmt(s.jumlah, 0)}</strong></td>
-          <td class="num">${fmtRata(s.rata_rata)}</td>
-          <td class="center"><span class="badge rank">#${fmt(s.rank, 0)}</span></td>
-        </tr>`;
-      }).join('');
+    const kktpMap = kktpNilaiMap(data);
+    const sort = currentSort('per_semester');
+    const mode = 'per_semester';
+    const groups = data.groups;
 
-      return `<section class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>SEM ${g.semester_ke} · ${esc(g.semester)}</h2>
-            <p>Tahun ajaran ${esc(g.tahun_ajaran)} · Kelas ${esc(g.kelas)} · ${g.siswa.length} siswa</p>
-          </div>
-          ${statsHtml(g.ringkasan)}
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="center">No</th>
-                <th>NIS</th>
-                <th>NISN</th>
-                <th>Nama</th>
-                <th class="center">JK</th>
-                ${head}
-                <th class="num">Jumlah</th>
-                <th class="num">Rata</th>
-                <th class="center">Rank</th>
-              </tr>
-            </thead>
-            <tbody>${body}</tbody>
-          </table>
-        </div>
-      </section>`;
-    }).join('');
+    // Sedikit kelompok: render langsung. Banyak: bertahap agar UI tidak macet.
+    if (groups.length <= 4) {
+      view.innerHTML = groups.map((g) => perSemesterPanelHtml(g, kktpMap, sort, mode)).join('');
+      return;
+    }
+
+    view.innerHTML = '';
+    let idx = 0;
+    const batch = 2;
+    const paint = () => {
+      if (token !== state.renderToken) return;
+      const end = Math.min(idx + batch, groups.length);
+      let chunk = '';
+      for (; idx < end; idx++) {
+        chunk += perSemesterPanelHtml(groups[idx], kktpMap, sort, mode);
+      }
+      view.insertAdjacentHTML('beforeend', chunk);
+      if (idx < groups.length) {
+        requestAnimationFrame(paint);
+      }
+    };
+    paint();
   }
 
   function renderSemuaSemester(data) {
@@ -423,17 +710,26 @@
       return;
     }
 
+    const kktpMap = kktpNilaiMap(data);
+    const sort = currentSort('semua_semester');
+    const mode = 'semua_semester';
+    const siswa = sortSiswaRows(data.siswa || [], sort.key, sort.dir);
+
     const semKeys = [...new Set(
-      data.siswa.flatMap((s) => s.semesters.map((x) => x.semester_ke))
+      siswa.flatMap((s) => s.semesters.map((x) => x.semester_ke))
     )].sort((a, b) => a - b);
 
-    const head = semKeys.map((k) => `<th class="num">SEM ${k}<br><span class="muted">rata</span></th>`).join('');
+    const head = semKeys.map((k) => sortHeader(mode, `sem:${k}`, `SEM ${k}`, 'num')).join('');
 
-    const body = data.siswa.map((s) => {
+    const body = siswa.map((s) => {
       const map = Object.fromEntries(s.semesters.map((x) => [x.semester_ke, x]));
       const cells = semKeys.map((k) => {
         const row = map[k];
-        return `<td class="num">${row ? fmtRata(row.rata_rata) : '—'}</td>`;
+        if (!row) return `<td class="num">—</td>`;
+        return excelScoreCell(row.rata_rata, s.kelas || row.kelas, kktpMap, 0, {
+          roundInt: true,
+          intervalCells: true,
+        });
       }).join('');
       return `<tr>
         <td class="center"><span class="badge rank">#${s.rank_keseluruhan}</span></td>
@@ -444,36 +740,54 @@
         <td class="center">${s.semester_count}</td>
         ${cells}
         <td class="num"><strong>${fmt(s.total_jumlah, 0)}</strong></td>
-        <td class="num"><strong>${fmtRata(s.rata_rata_semua)}</strong></td>
+        ${excelScoreCell(s.rata_rata_semua, s.kelas, kktpMap, 0, {
+          roundInt: true,
+          intervalCells: true,
+          strong: true,
+        })}
       </tr>`;
     }).join('');
 
     view.innerHTML = `<section class="panel">
       <div class="panel-head">
         <div>
-          <h2>Rekap semua semester</h2>
-          <p>${data.total_siswa} siswa · diurutkan dari rata-rata keseluruhan tertinggi</p>
+          <h2>Rata-rata semua semester (dibulatkan)</h2>
+          <p>${data.total_siswa} siswa · urut ${sort.key === 'nama' ? 'abjad nama' : 'nilai'} (${sort.dir === 'asc' ? 'naik' : 'turun'})</p>
         </div>
-        ${statsHtml(data.ringkasan)}
+        <div class="panel-actions">
+          ${can('export') ? '<a class="btn primary" id="btnExportSemuaSemester" href="#">Export Excel</a>' : ''}
+          ${statsHtml(data.ringkasan)}
+        </div>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th class="center">Rank</th>
+              ${sortHeader(mode, 'rank_keseluruhan', 'Rank', 'center')}
               <th>NISN</th>
-              <th>Nama</th>
-              <th>Kelas</th>
-              <th class="center">#Sem</th>
+              ${sortHeader(mode, 'nama', 'Nama')}
+              ${sortHeader(mode, 'kelas', 'Kelas')}
+              ${sortHeader(mode, 'semester_count', '#Sem', 'center')}
               ${head}
-              <th class="num">Total jumlah</th>
-              <th class="num">Rata semua</th>
+              ${sortHeader(mode, 'total_jumlah', 'Total jumlah', 'num')}
+              ${sortHeader(mode, 'rata_rata_semua', 'Rata semua', 'num')}
             </tr>
           </thead>
           <tbody>${body}</tbody>
         </table>
       </div>
     </section>`;
+
+    const btnExport = $('#btnExportSemuaSemester');
+    if (btnExport) {
+      const p = new URLSearchParams();
+      const f = currentFilters();
+      if (f.tahun_ajaran) p.set('tahun_ajaran', f.tahun_ajaran);
+      if (f.semester) p.set('semester', f.semester);
+      if (f.kelas) p.set('kelas', f.kelas);
+      if (f.id) p.set('id', f.id);
+      btnExport.href = `unduh_rekap_semua_semester.php?${p.toString()}`;
+    }
   }
 
   function renderPerSiswa(data) {
@@ -504,7 +818,13 @@
     };
 
     const slots = ['x_ganjil', 'x_genap', 'xi_ganjil', 'xi_genap', 'xii_ganjil', 'xii_genap'];
+    const slotTingkat = {
+      x_ganjil: 'X', x_genap: 'X',
+      xi_ganjil: 'XI', xi_genap: 'XI',
+      xii_ganjil: 'XII', xii_genap: 'XII',
+    };
     const paiCodes = new Set(['QH', 'AA', 'FIK', 'SKI']);
+    const kktpMap = kktpNilaiMap(data);
 
     const hasilRows = (hb?.kelompok || []).map((g) => {
       const pai = [];
@@ -514,14 +834,20 @@
         else other.push(r);
       });
       const renderRow = (r) => {
-        const vals = slots.map((k) => `<td class="num">${esc(fmtCell(r.nilai?.[k]))}</td>`).join('');
+        const vals = slots.map((k) => excelScoreCell(r.nilai?.[k], slotTingkat[k], kktpMap, 1)).join('');
+        const hasTeori = r.has_teori === true || (r.ujian != null && r.ujian !== '');
+        const akhirTone = hasTeori ? 'hasil-akhir hasil-akhir-teori' : 'hasil-akhir hasil-akhir-pending';
+        const akhirTitle = hasTeori
+          ? 'Nilai akhir (ujian teori sudah ada)'
+          : 'Nilai akhir sementara — ujian teori belum ada';
+        const tingkatRataan = parseTingkatKelas(hb.kelas_akhir || s.kelas_akhir || s.kelas_list?.[s.kelas_list.length - 1] || '') || 'XII';
         return `<tr>
           <td>${esc(r.nama)}</td>
           ${vals}
-          <td class="num"><strong>${esc(fmtCell(r.rataan))}</strong></td>
+          ${excelScoreCell(r.rataan, tingkatRataan, kktpMap, 1, { asRata: true, strong: true })}
           <td class="num">${esc(fmtCell(r.ujian_praktek))}</td>
           <td class="num">${esc(fmtCell(r.ujian))}</td>
-          <td class="num hasil-akhir"><strong>${esc(fmtCell(r.nilai_akhir))}</strong></td>
+          <td class="num ${akhirTone}" title="${akhirTitle}"><strong>${esc(r.nilai_akhir == null || Number.isNaN(Number(r.nilai_akhir)) ? '—' : fmt(r.nilai_akhir, 0))}</strong></td>
         </tr>`;
       };
       let body = `<tr class="hasil-group"><td colspan="11">${esc(g.judul)}</td></tr>`;
@@ -590,8 +916,9 @@
     const semPanels = s.semesters.map((sem) => {
       const subjects = sem.subjects || Object.keys(sem.scores || {});
       const rows = subjects.map((sub) => {
-        const v = sem.scores?.[sub];
-        return `<tr><td>${esc(sub)}</td><td class="num">${v == null ? '—' : fmt(v, 0)}</td></tr>`;
+        const cell = excelScoreCell(sem.scores?.[sub], sem.kelas, kktpMap, 0);
+        // excelScoreCell returns <td>…</td>; wrap as mapel row
+        return `<tr><td>${esc(sub)}</td>${cell}</tr>`;
       }).join('');
       return `<section class="panel">
         <div class="panel-head">
@@ -619,9 +946,10 @@
       .sort((a, b) => (b[1].rata ?? -1) - (a[1].rata ?? -1))
       .map(([name, t]) => {
         const series = t.series.map((x) => `S${x.semester_ke}:${x.nilai == null ? '—' : fmt(x.nilai, 0)}`).join(' · ');
+        const tingkatTrend = parseTingkatKelas(s.kelas_akhir || s.kelas_list?.[s.kelas_list.length - 1] || '') || '';
         return `<tr>
           <td>${esc(name)}</td>
-          <td class="num">${fmtRata(t.rata)}</td>
+          ${excelScoreCell(t.rata, tingkatTrend, kktpMap, 1, { asRata: true })}
           <td class="num">${fmt(t.max, 0)}</td>
           <td class="num">${fmt(t.min, 0)}</td>
           <td class="muted">${esc(series)}</td>
@@ -1188,16 +1516,52 @@
 
   function renderIjazahDaftar(data) {
     const angkatanList = data.angkatan || [];
+    const kktpMap = kktpNilaiMap(data);
 
-    const scoreCell = (v, digits = 1) => {
+    const scoreCell = (v, opts = {}) => {
+      const digits = opts.digits ?? 1;
+      const tdClass = opts.tdClass || 'num mapel-col';
       if (v == null || Number.isNaN(Number(v))) {
-        return `<td class="num mapel-col"><span class="score-empty">—</span></td>`;
+        return `<td class="${tdClass}"><span class="score-empty">—</span></td>`;
       }
-      const n = Number(v);
-      let tone = 'mid';
-      if (n >= 90) tone = 'high';
-      else if (n < 75) tone = 'low';
-      return `<td class="num mapel-col"><span class="score-pill ${tone}">${Number(n).toLocaleString('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits })}</span></td>`;
+      const n = Math.round(Number(v) * (digits === 0 ? 1 : 10)) / (digits === 0 ? 1 : 10);
+      const nShow = digits === 0 ? Math.round(Number(v)) : n;
+      const thr = (() => {
+        const kelas = opts.kelas || '';
+        const key = String(kelas).toUpperCase();
+        if (kktpMap && Object.prototype.hasOwnProperty.call(kktpMap, key)) return kktpMap[key];
+        const tingkat = parseTingkatKelas(kelas);
+        return tingkat != null && kktpMap ? kktpMap[tingkat] : null;
+      })();
+      const band = thr != null ? kktpPredikatBand(nShow, thr) : null;
+      const below = band === 'belum';
+      const hasTeori = opts.hasTeori === true;
+      const forMapel = opts.forMapel === true;
+      let tone = 'plain';
+      if (below) {
+        tone = 'below-kktp';
+      } else if (forMapel && hasTeori) {
+        if (band === 'sangat_baik') tone = 'plain band-sb';
+        else if (band === 'baik') tone = 'plain band-baik';
+        else tone = 'plain band-cukup';
+      } else if (forMapel && !hasTeori) {
+        tone = 'plain teori-pending';
+      } else if (opts.intervalAlways && band) {
+        if (band === 'sangat_baik') tone = 'plain band-sb';
+        else if (band === 'baik') tone = 'plain band-baik';
+        else if (band === 'cukup') tone = 'plain band-cukup';
+      }
+      const title = below
+        ? `Di bawah KKTP (${thr})`
+        : (forMapel
+          ? (hasTeori ? `Nilai akhir · ${band === 'sangat_baik' ? 'Sangat Baik' : band === 'baik' ? 'Baik' : 'Cukup'}` : 'Nilai sementara — ujian teori belum ada')
+          : (thr != null ? `KKTP: ${thr}` : ''));
+      const titleAttr = title ? ` title="${esc(title)}"` : '';
+      const text = Number(nShow).toLocaleString('id-ID', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      });
+      return `<td class="${tdClass}"><span class="score-pill ${tone}"${titleAttr}>${text}</span></td>`;
     };
 
     const rankBadge = (rank) => {
@@ -1205,17 +1569,28 @@
       return `<span class="rank-pill${top}">${rank}</span>`;
     };
 
+    const sort = currentSort('nilai_ijazah');
+    const mode = 'nilai_ijazah';
+
     const renderKelompok = (g, gi, angkatanLabel) => {
       const mapelCols = g.mapel || [];
       const rataMapel = g.rata_mapel || {};
       const colCount = 5 + mapelCols.length + 1;
       const headMapel = mapelCols.map((m) =>
-        `<th class="num mapel-col" title="${esc(m.nama)}"><span class="mapel-head">${esc(m.short || m.kode)}</span></th>`
+        sortHeader(mode, `mapel:${m.kode}`, m.short || m.kode, 'num mapel-col', m.nama || m.kode)
       ).join('');
 
-      const body = (g.siswa || []).map((s, si) => {
+      const siswa = sortSiswaRows(g.siswa || [], sort.key, sort.dir);
+      const body = siswa.map((s, si) => {
         const nm = s.nilai_mapel || {};
-        const mapelCells = mapelCols.map((m) => scoreCell(nm[m.kode])).join('');
+        const ht = s.has_teori_mapel || {};
+        const kelas = s.kelas_akhir || '';
+        const mapelCells = mapelCols.map((m) => scoreCell(nm[m.kode], {
+          forMapel: true,
+          hasTeori: ht[m.kode] === true,
+          kelas,
+          digits: 0,
+        })).join('');
         return `<tr class="${si % 2 ? 'row-alt' : ''}">
           <td class="center">${rankBadge(s.rank)}</td>
           <td class="nisn-cell">${esc(s.nisn)}</td>
@@ -1225,15 +1600,15 @@
           </td>
           <td><span class="kelas-tag">${esc(s.kelas_akhir || '—')}</span></td>
           ${mapelCells}
-          <td class="num rata-cell"><span class="score-pill total">${fmtRata(s.rata_ijazah)}</span></td>
+          ${scoreCell(s.rata_ijazah, { kelas, tdClass: 'num rata-cell', digits: 0, intervalAlways: true })}
         </tr>`;
       }).join('') || `<tr><td colspan="${colCount}" class="center muted">Tidak ada siswa.</td></tr>`;
 
-      const footMapel = mapelCols.map((m) => scoreCell(rataMapel[m.kode], 1)).join('');
+      const footMapel = mapelCols.map((m) => scoreCell(rataMapel[m.kode], { digits: 0 })).join('');
       const avgIjazah = (() => {
         const vals = (g.siswa || []).map((s) => s.rata_ijazah).filter((v) => v != null);
         if (!vals.length) return null;
-        return Math.round((vals.reduce((a, b) => a + Number(b), 0) / vals.length) * 10) / 10;
+        return Math.round(vals.reduce((a, b) => a + Number(b), 0) / vals.length);
       })();
 
       return `
@@ -1242,7 +1617,7 @@
             <div>
               <p class="ijazah-group-kicker">${esc(angkatanLabel)} · Kelompok mapel ${gi + 1}</p>
               <h2>${esc(g.mapel_count)} mapel · ${esc(g.total_siswa)} siswa</h2>
-              <p>Satu NISN hanya sekali per angkatan (termasuk lintas kelompok).</p>
+              <p>Satu NISN hanya sekali per angkatan. Font hitam; merah jika di bawah KKTP.</p>
             </div>
             <div class="ijazah-group-meta">
               <span>${esc(g.mapel_count)} mapel</span>
@@ -1253,12 +1628,12 @@
             <table class="ijazah-table">
               <thead>
                 <tr>
-                  <th class="center">#</th>
+                  ${sortHeader(mode, 'rank', '#', 'center')}
                   <th>NISN</th>
-                  <th>Nama siswa</th>
-                  <th>Kelas</th>
+                  ${sortHeader(mode, 'nama', 'Nama siswa')}
+                  ${sortHeader(mode, 'kelas_akhir', 'Kelas')}
                   ${headMapel}
-                  <th class="num">Rata</th>
+                  ${sortHeader(mode, 'rata_ijazah', 'Rata', 'num')}
                 </tr>
               </thead>
               <tbody>${body}</tbody>
@@ -1267,7 +1642,7 @@
                   <td class="center" colspan="3"><span class="avg-label">Rata-rata mapel</span></td>
                   <td></td>
                   ${footMapel}
-                  <td class="num rata-cell"><span class="score-pill total">${avgIjazah == null ? '—' : Number(avgIjazah).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span></td>
+                  ${scoreCell(avgIjazah, { digits: 0, tdClass: 'num rata-cell' })}
                 </tr>
               </tfoot>
             </table>
@@ -1294,8 +1669,8 @@
       <section class="panel ijazah-hero">
         <div class="panel-head">
           <div>
-            <h2 style="color:#7a3e12">Nilai ijazah</h2>
-            <p>Per angkatan, dikelompokkan mapel yang sama. NISN sama (007… / 7…) hanya muncul sekali.</p>
+            <h2 class="ijazah-title">Nilai ijazah</h2>
+            <p>Per angkatan, dikelompokkan mapel yang sama. Font hitam; merah jika di bawah KKTP. Latar putih/biru/hijau hanya jika teori sudah ada.</p>
           </div>
           <div class="panel-actions">
             <a class="btn primary" id="btnExportIjazah" href="#">Export Excel</a>
@@ -1329,24 +1704,49 @@
       view.innerHTML = `<div class="empty">Data siswa tidak ditemukan.</div>`;
       return;
     }
+    const kktpMap = kktpNilaiMap(data);
+    const tingkatSiswa = s.kelas_akhir || (s.kelas_list || []).slice(-1)[0] || '';
     const body = (s.mapel || []).map((m, i) => {
       const ket = (m.keterangan || '').trim();
       const ketHtml = ket
         ? `<span class="ket-warn" title="${esc(ket)}">${esc(ket)}</span>`
         : `<span class="muted">${m.semester_count || 0} smt</span>`;
       const ij = m.nilai_ijazah;
-      let tone = 'mid';
-      if (ij == null) tone = '';
-      else if (Number(ij) >= 90) tone = 'high';
-      else if (Number(ij) < 75) tone = 'low';
+      const hasTeori = m.ujian_teori != null && m.ujian_teori !== '';
+      const thrKey = String(tingkatSiswa || '').toUpperCase();
+      const tingkat = (kktpMap && Object.prototype.hasOwnProperty.call(kktpMap, thrKey))
+        ? thrKey
+        : parseTingkatKelas(tingkatSiswa);
+      const thr = tingkat != null && kktpMap ? kktpMap[tingkat] : null;
+      const ijRounded = ij == null ? null : Math.round(Number(ij));
+      const band = ijRounded != null && thr != null ? kktpPredikatBand(ijRounded, thr) : null;
+      const below = band === 'belum';
+      let tone = '';
+      if (ij != null) {
+        if (below) tone = 'below-kktp';
+        else if (hasTeori) {
+          if (band === 'sangat_baik') tone = 'plain band-sb';
+          else if (band === 'baik') tone = 'plain band-baik';
+          else tone = 'plain band-cukup';
+        } else {
+          tone = 'plain teori-pending';
+        }
+      }
+      const title = ij == null
+        ? ''
+        : (below
+          ? `Di bawah KKTP (${thr})`
+          : (hasTeori
+            ? `Nilai akhir · ${band === 'sangat_baik' ? 'Sangat Baik' : band === 'baik' ? 'Baik' : 'Cukup'}`
+            : 'Nilai sementara — ujian teori belum ada'));
       return `<tr class="${i % 2 ? 'row-alt' : ''}">
       <td class="center"><span class="rank-pill">${i + 1}</span></td>
       <td><strong>${esc(m.kode)}</strong><div class="muted">${esc(m.nama)}</div></td>
       <td class="num">${m.jumlah == null ? '—' : fmt(m.jumlah)}</td>
-      <td class="num">${m.rataan == null ? '—' : fmtRata(m.rataan)}</td>
+      ${excelScoreCell(m.rataan, tingkatSiswa, kktpMap, 1, { asRata: true, plainKktp: true })}
       <td class="num">${m.ujian_praktek == null ? '—' : fmt(m.ujian_praktek)}</td>
       <td class="num">${m.ujian_teori == null ? '—' : fmt(m.ujian_teori)}</td>
-      <td class="num">${ij == null ? '<span class="score-empty">—</span>' : `<span class="score-pill ${tone} total">${fmt(ij)}</span>`}</td>
+      <td class="num">${ij == null ? '<span class="score-empty">—</span>' : `<span class="score-pill ${tone} total" title="${esc(title)}">${fmt(ijRounded, 0)}</span>`}</td>
       <td class="ket-cell">${ketHtml}</td>
     </tr>`;
     }).join('');
@@ -1370,7 +1770,7 @@
           <div class="stat">Rata rataan<strong>${fmtRata(s.ringkasan.rata_rataan)}</strong></div>
           <div class="stat">Rata praktek<strong>${fmtRata(s.ringkasan.rata_praktek)}</strong></div>
           <div class="stat">Rata teori<strong>${fmtRata(s.ringkasan.rata_teori)}</strong></div>
-          <div class="stat">Rata ijazah<strong>${fmtRata(s.ringkasan.rata_ijazah)}</strong></div>
+          <div class="stat">Rata ijazah<strong>${fmt(s.ringkasan.rata_ijazah, 0)}</strong></div>
         </div>
         <div class="table-wrap table-wrap-ijazah">
           <table class="ijazah-table ijazah-table-detail">
@@ -1405,8 +1805,104 @@
         || isUjianMode()
         || state.mode === 'impor_data'
         || state.mode === 'pengaturan_sekolah'
-        || state.mode === 'kelola_user';
+        || state.mode === 'kelola_user'
+        || state.mode === 'kktp';
     }
+  }
+
+  function renderKktpIntervalPreview(kktp) {
+    const iv = kktpIntervals(kktp);
+    if (!iv) return '<p class="muted">Isi nilai batas ketercapaian untuk melihat interval.</p>';
+    const rows = [
+      ['belum', 'kktp-iv-belum'],
+      ['cukup', 'kktp-iv-cukup'],
+      ['baik', 'kktp-iv-baik'],
+      ['sangat_baik', 'kktp-iv-sb'],
+    ].map(([key, cls]) => {
+      const r = iv[key];
+      return `<li class="${cls}"><strong>${esc(r.label)}</strong>
+        <span>${fmtIntervalBound(r.min)} – ${fmtIntervalBound(r.max)}</span></li>`;
+    }).join('');
+    return `<div class="kktp-interval">
+      <h3>Interval</h3>
+      <p class="muted">Mengikuti Nilai Batas Ketercapaian <strong>${fmtIntervalBound(iv.kktp)}</strong>. Berubah otomatis jika KKTP diubah.</p>
+      <ul class="kktp-interval-list">${rows}</ul>
+    </div>`;
+  }
+
+  function bindKktpIntervalLive() {
+    const box = $('#kktpIntervalBox');
+    if (!box) return;
+    const inputs = [...document.querySelectorAll('#formKktp input[data-tingkat]')];
+    const refresh = () => {
+      const vals = inputs.map((el) => Number(el.value)).filter((n) => Number.isFinite(n));
+      const sample = vals.length ? vals[0] : 75;
+      // Jika semua tingkat sama, pakai itu; jika beda, tampilkan per tingkat ringkas
+      const allSame = vals.length > 0 && vals.every((v) => v === vals[0]);
+      if (allSame || vals.length <= 1) {
+        box.innerHTML = renderKktpIntervalPreview(sample);
+        return;
+      }
+      const blocks = inputs.map((el) => {
+        const k = Number(el.value);
+        const label = el.closest('label')?.querySelector('span')?.textContent || el.dataset.tingkat;
+        return `<div class="kktp-interval-tingkat"><h4>${esc(label)}</h4>${renderKktpIntervalPreview(k)}</div>`;
+      }).join('');
+      box.innerHTML = blocks;
+    };
+    inputs.forEach((el) => el.addEventListener('input', refresh));
+    refresh();
+  }
+
+  function renderKktp(data) {
+    const jenjang = (data.jenjang || []).join(' · ') || '—';
+    const tingkat = data.tingkat || [];
+    const canEdit = can('kktp');
+    const updated = data.updated_at
+      ? new Date(data.updated_at).toLocaleString('id-ID')
+      : 'Belum pernah disimpan';
+    const sampleKktp = tingkat[0]?.nilai ?? data.default ?? 75;
+
+    const fields = tingkat.map((t) => `
+      <label class="kktp-field">
+        <span>${esc(t.label)}</span>
+        <input
+          type="number"
+          name="kktp_${esc(t.kode)}"
+          data-tingkat="${esc(t.kode)}"
+          min="0"
+          max="100"
+          step="0.01"
+          value="${esc(t.nilai)}"
+          ${canEdit ? '' : 'readonly'}
+          required
+        />
+      </label>`).join('');
+
+    view.innerHTML = `
+      <section class="panel kktp-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="kktp-title">KKTP</h2>
+            <p>Kriteria Ketercapaian Tujuan Pembelajaran per tingkat. Jenjang terdeteksi dari data Excel: <strong>${esc(jenjang)}</strong>.</p>
+          </div>
+        </div>
+        <form id="formKktp" class="kktp-form" autocomplete="off">
+          <div class="kktp-grid">
+            ${fields || '<p class="muted">Tidak ada tingkat terdeteksi. Unggah Excel rapor terlebih dahulu.</p>'}
+          </div>
+          <p class="muted kktp-hint">Nilai default ${esc(data.default ?? 75)}. Rentang 0–100. Terakhir disimpan: ${esc(updated)}</p>
+          <div id="kktpIntervalBox">${renderKktpIntervalPreview(sampleKktp)}</div>
+          ${canEdit && tingkat.length
+            ? `<div class="filter-actions">
+                <button type="submit" class="btn primary">Simpan KKTP</button>
+                <button type="button" class="btn ghost" id="btnKktpResetDefault">Kembalikan ke 75</button>
+              </div>`
+            : (!canEdit ? '<p class="muted">Hanya admin yang dapat mengubah KKTP.</p>' : '')}
+        </form>
+      </section>`;
+
+    bindKktpIntervalLive();
   }
 
   function renderKelolaUser(data) {
@@ -1902,18 +2398,33 @@
   async function loadView() {
     showStatus('');
     syncFilterPanel();
-    view.innerHTML = `<div class="empty">Memuat…</div>`;
     const f = currentFilters();
+    const token = ++state.loadToken;
+    state.renderToken++; // batalkan render bertahap sebelumnya
+
+    view.classList.add('is-loading');
+    if (!view.querySelector('.panel, .student-hero, .ijazah-angkatan, table')) {
+      view.innerHTML = `<div class="empty">Memuat…</div>`;
+    }
 
     try {
+      if (state.mode === 'kktp') {
+        const data = await api('kktp');
+        if (token !== state.loadToken) return;
+        renderKktp(data);
+        return;
+      }
+
       if (state.mode === 'kelola_kelas') {
         const data = await api('list_kelas');
+        if (token !== state.loadToken) return;
         renderKelolaKelas(data);
         return;
       }
 
       if (state.mode === 'pengaturan_sekolah') {
         const data = await api('list_sekolah');
+        if (token !== state.loadToken) return;
         applySekolahBranding(data.aktif, data.sekolah);
         renderPengaturanSekolah(data);
         return;
@@ -1921,6 +2432,7 @@
 
       if (state.mode === 'kelola_user') {
         const data = await api('list_users');
+        if (token !== state.loadToken) return;
         state.roles = data.roles || state.roles;
         renderKelolaUser(data);
         return;
@@ -1928,6 +2440,7 @@
 
       if (state.mode === 'impor_data') {
         const data = await api('list_import');
+        if (token !== state.loadToken) return;
         renderImporData(data);
         return;
       }
@@ -1939,6 +2452,7 @@
         }
         const jenis = ujianJenisFromMode();
         const data = await api('list_ujian', { jenis });
+        if (token !== state.loadToken) return;
         renderUjianList(data, jenis);
         return;
       }
@@ -1947,24 +2461,31 @@
 
       if (state.mode === 'nilai_ijazah') {
         const data = await api('nilai_ijazah', f);
+        if (token !== state.loadToken) return;
+        state.viewData = data;
         if (data.mode === 'detail') renderIjazahDetail(data);
         else renderIjazahDaftar(data);
         return;
       }
 
       if (state.mode === 'per_siswa' && !f.id) {
-        view.innerHTML = `<div class="empty">Pilih <strong>ID siswa (NISN)</strong> di filter.</div>`;
+        view.innerHTML = `<div class="empty">Pilih <strong>ID siswa (NISN)</strong> di filter, atau pakai tombol <strong>Cari siswa</strong>.</div>`;
         return;
       }
 
       const data = await api(state.mode, f);
+      if (token !== state.loadToken) return;
+      state.viewData = data;
 
       if (state.mode === 'per_semester') renderPerSemester(data);
       else if (state.mode === 'semua_semester') renderSemuaSemester(data);
       else renderPerSiswa(data);
     } catch (err) {
+      if (err?.name === 'AbortError') return;
       showStatus(err.message, true);
       view.innerHTML = `<div class="empty">Gagal memuat data.</div>`;
+    } finally {
+      if (token === state.loadToken) view.classList.remove('is-loading');
     }
   }
 
@@ -2017,6 +2538,79 @@
     }
   }
 
+  function closeSiswaSearch() {
+    const modal = $('#siswaSearchModal');
+    if (!modal) return;
+    modal.hidden = true;
+    const inp = $('#siswaSearchInput');
+    if (inp) inp.value = '';
+    const list = $('#siswaSearchResults');
+    if (list) list.innerHTML = '';
+    const meta = $('#siswaSearchMeta');
+    if (meta) meta.textContent = 'Ketikan untuk mencari.';
+  }
+
+  function renderSiswaSearchResults(q) {
+    const list = $('#siswaSearchResults');
+    const meta = $('#siswaSearchMeta');
+    if (!list || !meta) return;
+
+    const query = String(q || '').trim().toLowerCase();
+    const all = state.filters?.students || [];
+    if (!query) {
+      list.innerHTML = '';
+      meta.textContent = all.length
+        ? `${all.length} siswa tersedia. Ketik nama / NISN / NIS.`
+        : 'Belum ada data siswa. Sinkronkan Excel dulu.';
+      return;
+    }
+
+    const digits = query.replace(/\D+/g, '');
+    const hits = all.filter((s) => {
+      const nama = String(s.nama || '').toLowerCase();
+      const nisn = String(s.nisn || s.id || '').toLowerCase();
+      const nis = String(s.nis || '').toLowerCase();
+      if (nama.includes(query) || nisn.includes(query) || nis.includes(query)) return true;
+      if (digits !== '') {
+        const n1 = normalizeStudentKey(s.nisn || s.id || '');
+        const n2 = normalizeStudentKey(s.nis || '');
+        if (n1.includes(digits) || n2.includes(digits) || normalizeStudentKey(digits) === n1) return true;
+      }
+      return false;
+    }).slice(0, 40);
+
+    meta.textContent = hits.length
+      ? `${hits.length}${hits.length === 40 ? '+' : ''} hasil untuk “${q.trim()}”`
+      : `Tidak ada siswa cocok dengan “${q.trim()}”`;
+
+    if (!hits.length) {
+      list.innerHTML = `<li class="siswa-search-empty">Tidak ditemukan.</li>`;
+      return;
+    }
+
+    list.innerHTML = hits.map((s) => {
+      const kelas = (s.kelas_list || []).join(' / ') || '—';
+      return `<li>
+        <button type="button" role="option" data-pick-siswa="${esc(s.id)}">
+          <span class="nama">${esc(s.nama || '—')}</span>
+          <span class="meta">NISN ${esc(s.nisn || s.id || '—')} · NIS ${esc(s.nis || '—')} · ${esc(kelas)}</span>
+        </button>
+      </li>`;
+    }).join('');
+  }
+
+  function openSiswaSearch() {
+    const modal = $('#siswaSearchModal');
+    if (!modal) return;
+    modal.hidden = false;
+    renderSiswaSearchResults('');
+    const inp = $('#siswaSearchInput');
+    if (inp) {
+      inp.focus();
+      inp.select();
+    }
+  }
+
   function setMode(mode) {
     if (mode === state.mode) {
       return;
@@ -2052,7 +2646,7 @@
   let loadTimer = null;
   function loadViewSoon() {
     clearTimeout(loadTimer);
-    loadTimer = setTimeout(loadView, 50);
+    loadTimer = setTimeout(loadView, 220);
   }
 
   $('#btnApply').addEventListener('click', loadView);
@@ -2061,12 +2655,68 @@
       $(`#${id}`).value = '';
     });
     fillSiswaSelect();
+    clearApiCache();
     loadView();
+  });
+
+  const openSearchHandlers = () => openSiswaSearch();
+  $('#btnCariSiswa')?.addEventListener('click', openSearchHandlers);
+
+  $('#btnPetunjuk')?.addEventListener('click', () => {
+    const modal = $('#petunjukModal');
+    if (modal) modal.hidden = false;
+  });
+
+  const petunjukModal = $('#petunjukModal');
+  if (petunjukModal) {
+    petunjukModal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-petunjuk-close]')) {
+        petunjukModal.hidden = true;
+      }
+    });
+  }
+
+  const siswaModal = $('#siswaSearchModal');
+  if (siswaModal) {
+    siswaModal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-siswa-search-close]')) {
+        closeSiswaSearch();
+        return;
+      }
+      const pick = e.target.closest('[data-pick-siswa]');
+      if (pick) {
+        const id = pick.dataset.pickSiswa;
+        closeSiswaSearch();
+        openSiswaById(id);
+      }
+    });
+  }
+
+  let siswaSearchTimer = null;
+  $('#siswaSearchInput')?.addEventListener('input', (e) => {
+    clearTimeout(siswaSearchTimer);
+    const q = e.target.value;
+    siswaSearchTimer = setTimeout(() => renderSiswaSearchResults(q), 120);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const petunjuk = $('#petunjukModal');
+    if (petunjuk && !petunjuk.hidden) {
+      e.preventDefault();
+      petunjuk.hidden = true;
+      return;
+    }
+    const modal = $('#siswaSearchModal');
+    if (!modal || modal.hidden) return;
+    e.preventDefault();
+    closeSiswaSearch();
   });
 
   $('#btnRefresh').addEventListener('click', async () => {
     showStatus('Menyinkronkan dari Excel…');
     try {
+      clearApiCache();
       const r = await apiPost('refresh');
       await loadFilters();
       showStatus(`Sinkron sukses: ${r.files || 0} file, ${r.students} siswa, ${r.semesters} semester, ${r.records} baris nilai.`);
@@ -2083,6 +2733,21 @@
   });
 
   view.addEventListener('click', (e) => {
+    const sortBtnEl = e.target.closest('.sort-btn');
+    if (sortBtnEl) {
+      e.preventDefault();
+      applyTableSort(sortBtnEl.dataset.sortMode || state.mode, sortBtnEl.dataset.sortKey || 'nama');
+      return;
+    }
+
+    const btnKktpReset = e.target.closest('#btnKktpResetDefault');
+    if (btnKktpReset) {
+      document.querySelectorAll('#formKktp input[data-tingkat]').forEach((inp) => {
+        inp.value = '75';
+      });
+      return;
+    }
+
     const openBtn = e.target.closest('[data-open-siswa]');
     if (openBtn) {
       openSiswaById(openBtn.dataset.openSiswa);
@@ -2431,6 +3096,26 @@
       return;
     }
 
+    const formKktp = e.target.closest('#formKktp');
+    if (formKktp) {
+      e.preventDefault();
+      const nilai = {};
+      formKktp.querySelectorAll('input[data-tingkat]').forEach((inp) => {
+        nilai[inp.dataset.tingkat] = Number(inp.value);
+      });
+      (async () => {
+        try {
+          const res = await apiPost('save_kktp', { nilai });
+          showStatus(res.message || 'KKTP disimpan.');
+          if (state.filters) state.filters.kktp = res.kktp;
+          renderKktp(res.kktp || { tingkat: [], jenjang: [] });
+        } catch (err) {
+          showStatus(err.message, true);
+        }
+      })();
+      return;
+    }
+
     const formSekolah = e.target.closest('#formSekolah');
     if (formSekolah) {
       e.preventDefault();
@@ -2602,7 +3287,7 @@
   // Langsung tampil saat dropdown berubah
   ['fTahun', 'fSemester', 'fKelas', 'fSiswa'].forEach((id) => {
     $(`#${id}`).addEventListener('change', () => {
-      if (state.mode === 'kelola_kelas' || isUjianMode() || state.mode === 'impor_data' || state.mode === 'pengaturan_sekolah' || state.mode === 'kelola_user') return;
+      if (state.mode === 'kelola_kelas' || isUjianMode() || state.mode === 'impor_data' || state.mode === 'pengaturan_sekolah' || state.mode === 'kelola_user' || state.mode === 'kktp') return;
       if (id === 'fKelas') {
         fillSiswaSelect();
       }

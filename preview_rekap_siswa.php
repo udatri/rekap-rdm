@@ -27,6 +27,14 @@ try {
 
     $s = $rekap['siswa'];
     $hb = $s['hasil_belajar'];
+    $kktp = $rekap['kktp'] ?? $service->getKktp($data);
+    $kktpMap = [];
+    foreach ($kktp['tingkat'] ?? [] as $t) {
+        $kode = strtoupper((string) ($t['kode'] ?? ''));
+        if ($kode !== '' && isset($t['nilai']) && is_numeric($t['nilai'])) {
+            $kktpMap[$kode] = (float) $t['nilai'];
+        }
+    }
     $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 
     $fmt = static function ($v): string {
@@ -38,6 +46,18 @@ try {
 
     $esc = static fn (string $t): string => htmlspecialchars($t, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
+    $scoreClass = static function ($v, ?string $tingkat) use ($kktpMap): string {
+        if ($v === null || $v === '' || !is_numeric($v)) {
+            return '';
+        }
+        $tingkat = $tingkat !== null ? strtoupper($tingkat) : '';
+        $thr = ($tingkat !== '' && isset($kktpMap[$tingkat])) ? $kktpMap[$tingkat] : null;
+        if ($thr !== null && (float) $v < $thr) {
+            return ' nilai-excel nilai-bawah-kktp';
+        }
+        return ' nilai-excel';
+    };
+
     $slotLabels = [
         'x_ganjil' => ['X', 'Ganjil'],
         'x_genap' => ['X', 'Genap'],
@@ -46,6 +66,15 @@ try {
         'xii_ganjil' => ['XII', 'Ganjil'],
         'xii_genap' => ['XII', 'Genap'],
     ];
+    $slotTingkat = [
+        'x_ganjil' => 'X', 'x_genap' => 'X',
+        'xi_ganjil' => 'XI', 'xi_genap' => 'XI',
+        'xii_ganjil' => 'XII', 'xii_genap' => 'XII',
+    ];
+    $tingkatAkhir = 'XII';
+    if (preg_match('/^(XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\b/i', (string) ($hb['kelas_akhir'] ?? ''), $m)) {
+        $tingkatAkhir = strtoupper($m[1]);
+    }
 } catch (Throwable $e) {
     http_response_code($e instanceof InvalidArgumentException ? 400 : 500);
     echo '<!DOCTYPE html><html lang="id"><meta charset="utf-8"><title>Error</title>'
@@ -187,6 +216,10 @@ try {
       background: #eee;
     }
     table.rekap .col-akhir { background: #fff8e8; font-weight: 600; }
+    table.rekap .col-akhir-pending { background: #fef3c7 !important; color: #92400e; font-weight: 700; }
+    table.rekap .col-akhir-teori { background: #1e3a5f !important; color: #f8fafc; font-weight: 700; }
+    table.rekap .nilai-excel { color: #111; font-weight: 600; }
+    table.rekap .nilai-bawah-kktp { color: #c62828 !important; font-weight: 700; }
     thead .col-akhir { background: #f3e4d2; }
     .note {
       margin-top: 0.65rem;
@@ -320,11 +353,11 @@ try {
             if ($paiRows !== []) {
                 echo '<tr class="subhead"><td colspan="11">Pendidikan Agama Islam dan Budi Pekerti</td></tr>';
                 foreach ($paiRows as $r) {
-                    renderHasilRow($r, $fmt, $esc);
+                    renderHasilRow($r, $fmt, $esc, $scoreClass, $slotTingkat, $tingkatAkhir);
                 }
             }
             foreach ($otherRows as $r) {
-                renderHasilRow($r, $fmt, $esc);
+                renderHasilRow($r, $fmt, $esc, $scoreClass, $slotTingkat, $tingkatAkhir);
             }
         endforeach;
         ?>
@@ -366,17 +399,22 @@ try {
 </body>
 </html>
 <?php
-function renderHasilRow(array $r, callable $fmt, callable $esc): void
+function renderHasilRow(array $r, callable $fmt, callable $esc, callable $scoreClass, array $slotTingkat, string $tingkatAkhir): void
 {
     $slots = ['x_ganjil', 'x_genap', 'xi_ganjil', 'xi_genap', 'xii_ganjil', 'xii_genap'];
     echo '<tr>';
     echo '<td class="mapel">' . $esc($r['nama']) . '</td>';
     foreach ($slots as $slot) {
-        echo '<td class="num">' . $esc($fmt($r['nilai'][$slot] ?? null)) . '</td>';
+        $v = $r['nilai'][$slot] ?? null;
+        $cls = $scoreClass($v, $slotTingkat[$slot] ?? null);
+        echo '<td class="num' . $cls . '">' . $esc($fmt($v)) . '</td>';
     }
-    echo '<td class="num">' . $esc($fmt($r['rataan'] ?? null)) . '</td>';
+    $rataan = $r['rataan'] ?? null;
+    echo '<td class="num' . $scoreClass($rataan, $tingkatAkhir) . '">' . $esc($fmt($rataan)) . '</td>';
     echo '<td class="num">' . $esc($fmt($r['ujian_praktek'] ?? null)) . '</td>';
     echo '<td class="num">' . $esc($fmt($r['ujian'] ?? null)) . '</td>';
-    echo '<td class="num col-akhir">' . $esc($fmt($r['nilai_akhir'] ?? null)) . '</td>';
+    $hasTeori = !empty($r['has_teori']) || (($r['ujian'] ?? null) !== null && $r['ujian'] !== '');
+    $akhirClass = $hasTeori ? 'col-akhir col-akhir-teori' : 'col-akhir col-akhir-pending';
+    echo '<td class="num ' . $akhirClass . '">' . $esc($fmt($r['nilai_akhir'] ?? null)) . '</td>';
     echo '</tr>';
 }

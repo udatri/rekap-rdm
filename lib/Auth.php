@@ -157,6 +157,7 @@ final class Auth
             'users' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
             'users_superadmin' => [UserStore::ROLE_SUPERADMIN],
             'bobot_ijazah' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
+            'kktp' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
             'olah_rapor' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
         ];
         return in_array($role, $map[$capability] ?? [], true);

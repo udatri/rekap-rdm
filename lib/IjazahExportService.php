@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/Config.php';
 require_once __DIR__ . '/SekolahStore.php';
+require_once __DIR__ . '/KktpStore.php';
 
 /**
  * Export nilai ijazah ke Excel SpreadsheetML (.xls) dengan template visual.
@@ -122,16 +123,20 @@ final class IjazahExportService
         $xml .= '<Row ss:Height="10"><Cell/></Row>' . "\n";
         $xml .= '<Row ss:Height="20">' . $cell('Legenda nilai', 'Section', 4) . '</Row>' . "\n";
         $xml .= '<Row ss:Height="20">'
-            . $cell('≥ 90', 'ScoreHigh')
-            . $cell('Baik sekali', 'Data', 3)
+            . $cell('Font hitam', 'ScoreCukup')
+            . $cell('Nilai ≥ KKTP (dibulatkan)', 'Data', 3)
             . '</Row>' . "\n";
         $xml .= '<Row ss:Height="20">'
-            . $cell('75 – 89', 'ScoreMid')
-            . $cell('Baik', 'Data', 3)
+            . $cell('Font merah', 'ScoreLow')
+            . $cell('Nilai di bawah KKTP', 'Data', 3)
             . '</Row>' . "\n";
         $xml .= '<Row ss:Height="20">'
-            . $cell('< 75', 'ScoreLow')
-            . $cell('Perlu perhatian', 'Data', 3)
+            . $cell('Latar putih/biru/hijau', 'ScoreBaik')
+            . $cell('Hanya jika ujian teori sudah ada (Cukup / Baik / Sangat Baik)', 'Data', 3)
+            . '</Row>' . "\n";
+        $xml .= '<Row ss:Height="20">'
+            . $cell('Latar kuning tipis', 'ScorePending')
+            . $cell('Teori belum ada (nilai sementara)', 'Data', 3)
             . '</Row>' . "\n";
 
         $xml .= '<Row ss:Height="10"><Cell/></Row>' . "\n";
@@ -155,7 +160,16 @@ final class IjazahExportService
         $usedNames = ['Ringkasan' => true];
         foreach ($angkatanList as $a) {
             $sheetName = $this->uniqueSheetName((string) ($a['label'] ?? 'Angkatan'), $usedNames);
-            $xml .= $this->angkatanSheetXml($a, $bobot, $filter, $madrasah, $sheetName, $cell, $esc);
+            $xml .= $this->angkatanSheetXml(
+                $a,
+                $bobot,
+                $filter,
+                $madrasah,
+                $sheetName,
+                $cell,
+                $esc,
+                $this->kktpMap($rekap['kktp'] ?? [])
+            );
         }
 
         $xml .= '</Workbook>';
@@ -194,7 +208,7 @@ final class IjazahExportService
             ['Rata rapor', $this->numStr($s['ringkasan']['rata_rataan'] ?? null)],
             ['Rata praktek', $this->numStr($s['ringkasan']['rata_praktek'] ?? null)],
             ['Rata teori', $this->numStr($s['ringkasan']['rata_teori'] ?? null)],
-            ['Rata ijazah', $this->numStr($s['ringkasan']['rata_ijazah'] ?? null)],
+            ['Rata ijazah', $this->numStr($s['ringkasan']['rata_ijazah'] ?? null, 0)],
             ['Bobot', sprintf(
                 'Rapor %s%% · Praktek %s%% · Teori %s%%',
                 $bobot['rataan'] ?? 60,
@@ -226,14 +240,17 @@ final class IjazahExportService
             $alt = $i % 2 === 1;
             $d = $alt ? 'DataAlt' : 'Data';
             $dc = $alt ? 'DataAltCenter' : 'DataCenter';
+            $kelas = (string) ($s['kelas_akhir'] ?? '');
+            $kktp = $this->kktpForKelas($kelas, $this->kktpMap($rekap['kktp'] ?? []));
+            $hasTeori = ($m['ujian_teori'] ?? null) !== null && $m['ujian_teori'] !== '';
             $xml .= '<Row ss:Height="20">'
                 . $cell((string) ($i + 1), $dc, null, 'Number')
                 . $cell((string) ($m['kode'] ?? ''), $dc)
                 . $cell((string) ($m['nama'] ?? ''), $d)
-                . $this->scoreCellXml($cell, $m['rataan'] ?? null, $alt)
-                . $this->scoreCellXml($cell, $m['ujian_praktek'] ?? null, $alt)
-                . $this->scoreCellXml($cell, $m['ujian_teori'] ?? null, $alt)
-                . $this->scoreCellXml($cell, $m['nilai_ijazah'] ?? null, $alt)
+                . $this->scoreCellXml($cell, $m['rataan'] ?? null, $alt, false, false, $kktp, 1, false)
+                . $this->scoreCellXml($cell, $m['ujian_praktek'] ?? null, $alt, false, false, $kktp, 1, false)
+                . $this->scoreCellXml($cell, $m['ujian_teori'] ?? null, $alt, false, false, $kktp, 1, false)
+                . $this->scoreCellXml($cell, $m['nilai_ijazah'] ?? null, $alt, true, false, $kktp, 0, $hasTeori)
                 . $cell((string) ($m['semester_count'] ?? 0), $dc, null, 'Number')
                 . $cell((string) ($m['keterangan'] ?? ''), $d)
                 . '</Row>' . "\n";
@@ -254,7 +271,8 @@ final class IjazahExportService
         string $madrasah,
         string $sheetName,
         callable $cell,
-        callable $esc
+        callable $esc,
+        array $kktpMap = []
     ): string {
         $kelompok = $a['kelompok'] ?? [];
         $maxCols = 5; // # NISN Nama Kelas Rata
@@ -330,6 +348,8 @@ final class IjazahExportService
                 $d = $alt ? 'DataAlt' : 'Data';
                 $dc = $alt ? 'DataAltCenter' : 'DataCenter';
                 $nm = $s['nilai_mapel'] ?? [];
+                $ht = $s['has_teori_mapel'] ?? [];
+                $kktp = $this->kktpForKelas((string) ($s['kelas_akhir'] ?? ''), $kktpMap);
                 $row = '<Row ss:Height="20">'
                     . $cell((string) ($s['rank'] ?? ($si + 1)), $dc, null, 'Number')
                     . $cell((string) ($s['nisn'] ?? ''), $dc)
@@ -337,9 +357,10 @@ final class IjazahExportService
                     . $cell((string) ($s['kelas_akhir'] ?? ''), $dc);
                 foreach ($mapelCols as $m) {
                     $kode = (string) ($m['kode'] ?? '');
-                    $row .= $this->scoreCellXml($cell, $nm[$kode] ?? null, $alt);
+                    $hasTeori = ($ht[$kode] ?? false) === true;
+                    $row .= $this->scoreCellXml($cell, $nm[$kode] ?? null, $alt, false, false, $kktp, 0, $hasTeori);
                 }
-                $row .= $this->scoreCellXml($cell, $s['rata_ijazah'] ?? null, $alt, true);
+                $row .= $this->scoreCellXml($cell, $s['rata_ijazah'] ?? null, $alt, true, false, $kktp, 0, true);
                 $row .= '</Row>' . "\n";
                 $xml .= $row;
             }
@@ -351,7 +372,7 @@ final class IjazahExportService
                 . $cell('', 'Foot');
             foreach ($mapelCols as $m) {
                 $kode = (string) ($m['kode'] ?? '');
-                $foot .= $this->scoreCellXml($cell, $rataMapel[$kode] ?? null, false, false, true);
+                $foot .= $this->scoreCellXml($cell, $rataMapel[$kode] ?? null, false, false, true, null, 0);
             }
             $avgIjazah = null;
             $vals = [];
@@ -361,9 +382,9 @@ final class IjazahExportService
                 }
             }
             if ($vals !== []) {
-                $avgIjazah = round(array_sum($vals) / count($vals), 1);
+                $avgIjazah = (float) round(array_sum($vals) / count($vals), 0);
             }
-            $foot .= $this->scoreCellXml($cell, $avgIjazah, false, true, true);
+            $foot .= $this->scoreCellXml($cell, $avgIjazah, false, true, true, null, 0);
             $foot .= '</Row>' . "\n";
             $xml .= $foot;
             $xml .= '<Row ss:Height="12"><Cell/></Row>' . "\n";
@@ -386,29 +407,89 @@ final class IjazahExportService
         mixed $v,
         bool $alt = false,
         bool $bold = false,
-        bool $foot = false
+        bool $foot = false,
+        ?float $kktp = null,
+        int $decimals = 1,
+        bool $hasTeori = false
     ): string {
         if ($v === null || $v === '' || !is_numeric($v)) {
             $style = $foot ? 'FootEmpty' : ($alt ? 'ScoreEmptyAlt' : 'ScoreEmpty');
             return $cell('—', $style);
         }
-        $n = round((float) $v, 1);
-        if ($n >= 90) {
-            $style = $foot ? 'FootHigh' : ($bold ? 'ScoreHighBold' : ($alt ? 'ScoreHighAlt' : 'ScoreHigh'));
-        } elseif ($n >= 75) {
-            $style = $foot ? 'FootMid' : ($bold ? 'ScoreMidBold' : ($alt ? 'ScoreMidAlt' : 'ScoreMid'));
+        $n = round((float) $v, $decimals);
+
+        // Font hitam; merah hanya di bawah KKTP. Latar interval hanya jika teori sudah ada.
+        if ($kktp !== null && $n < $kktp) {
+            $style = $foot
+                ? 'FootLow'
+                : ($bold ? ($alt ? 'ScoreLowAltBold' : 'ScoreLowBold') : ($alt ? 'ScoreLowAlt' : 'ScoreLow'));
+        } elseif ($hasTeori && $kktp !== null) {
+            $band = KktpStore::predikatBand($n, $kktp);
+            if ($band === 'sangat_baik') {
+                $style = $bold
+                    ? ($alt ? 'ScoreHighAltBold' : 'ScoreHighBold')
+                    : ($alt ? 'ScoreHighAlt' : 'ScoreHigh');
+            } elseif ($band === 'baik') {
+                $style = $bold
+                    ? ($alt ? 'ScoreBaikAltBold' : 'ScoreBaikBold')
+                    : ($alt ? 'ScoreBaikAlt' : 'ScoreBaik');
+            } else {
+                $style = $bold
+                    ? ($alt ? 'ScoreCukupAltBold' : 'ScoreCukupBold')
+                    : ($alt ? 'ScoreCukupAlt' : 'ScoreCukup');
+            }
+            if ($foot) {
+                $style = 'Foot';
+            }
+        } elseif ($hasTeori === false && !$foot && $decimals === 0) {
+            // Mapel ijazah tanpa teori: kuning tipis, font hitam
+            $style = $bold
+                ? ($alt ? 'ScorePendingAltBold' : 'ScorePendingBold')
+                : ($alt ? 'ScorePendingAlt' : 'ScorePending');
         } else {
-            $style = $foot ? 'FootLow' : ($bold ? 'ScoreLowBold' : ($alt ? 'ScoreLowAlt' : 'ScoreLow'));
+            $style = $foot
+                ? 'Foot'
+                : ($bold
+                    ? ($alt ? 'ScorePlainAltBold' : 'ScorePlainBold')
+                    : ($alt ? 'ScorePlainAlt' : 'ScorePlain'));
         }
-        return $cell($this->numStr($n), $style, null, 'Number');
+
+        return $cell($this->numStr($n, $decimals), $style, null, 'Number');
     }
 
-    private function numStr(mixed $v): string
+    private function numStr(mixed $v, int $decimals = 1): string
     {
         if ($v === null || $v === '' || !is_numeric($v)) {
             return '—';
         }
-        return number_format((float) $v, 1, '.', '');
+        return number_format((float) $v, $decimals, '.', '');
+    }
+
+    /** @param array<string,mixed> $kktp */
+    private function kktpMap(array $kktp): array
+    {
+        $map = [];
+        foreach ($kktp['tingkat'] ?? [] as $t) {
+            $kode = strtoupper(trim((string) ($t['kode'] ?? '')));
+            if ($kode !== '' && isset($t['nilai']) && is_numeric($t['nilai'])) {
+                $map[$kode] = (float) $t['nilai'];
+            }
+        }
+        return $map;
+    }
+
+    /** @param array<string,float> $kktpMap */
+    private function kktpForKelas(string $kelas, array $kktpMap): ?float
+    {
+        if ($kelas === '' || $kktpMap === []) {
+            return null;
+        }
+        $tingkat = KktpStore::parseTingkat($kelas);
+        if ($tingkat !== null && isset($kktpMap[$tingkat])) {
+            return $kktpMap[$tingkat];
+        }
+        $key = strtoupper(trim($kelas));
+        return $kktpMap[$key] ?? null;
     }
 
     private function filterLabel(array $filter): string
@@ -513,14 +594,20 @@ final class IjazahExportService
                 . '</Borders>';
         };
 
-        $score = static function (string $id, string $fg, string $bg, bool $bold = false) use ($border, $esc): string {
+        $score = static function (
+            string $id,
+            string $fg,
+            string $bg,
+            bool $bold = false,
+            string $numFmt = '0.0'
+        ) use ($border, $esc): string {
             $b = $bold ? ' ss:Bold="1"' : '';
             return '<Style ss:ID="' . $esc($id) . '">'
                 . '<Font ss:FontName="Calibri" ss:Size="10"' . $b . ' ss:Color="' . $esc($fg) . '"/>'
                 . '<Interior ss:Color="' . $esc($bg) . '" ss:Pattern="Solid"/>'
                 . '<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>'
                 . $border('#D6C4B0')
-                . '<NumberFormat ss:Format="0.0"/>'
+                . '<NumberFormat ss:Format="' . $esc($numFmt) . '"/>'
                 . '</Style>' . "\n";
         };
 
@@ -553,7 +640,7 @@ final class IjazahExportService
             . '<Interior ss:Color="' . $w . '" ss:Pattern="Solid"/>'
             . '<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>'
             . $border('#FFFFFF') . '</Style>' . "\n";
-        $xml .= '<Style ss:ID="Data"><Font ss:FontName="Calibri" ss:Size="10" ss:Color="#2C2118"/>'
+        $xml .= '<Style ss:ID="Data"><Font ss:FontName="Calibri" ss:Size="10" ss:Color="#111111"/>'
             . '<Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>'
             . '<Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:Indent="1"/>'
             . $border() . '</Style>' . "\n";
@@ -561,26 +648,42 @@ final class IjazahExportService
         $xml .= '<Style ss:ID="DataAlt" ss:Parent="Data"><Interior ss:Color="' . $cream . '" ss:Pattern="Solid"/></Style>' . "\n";
         $xml .= '<Style ss:ID="DataAltCenter" ss:Parent="DataCenter"><Interior ss:Color="' . $cream . '" ss:Pattern="Solid"/></Style>' . "\n";
 
-        $xml .= $score('ScoreHigh', self::HIGH, self::HIGH_BG);
-        $xml .= $score('ScoreHighAlt', self::HIGH, '#B2F5EA');
-        $xml .= $score('ScoreHighBold', self::HIGH, self::HIGH_BG, true);
-        $xml .= $score('ScoreMid', self::MID, self::MID_BG);
-        $xml .= $score('ScoreMidAlt', self::MID, '#FED7AA');
-        $xml .= $score('ScoreMidBold', self::MID, self::MID_BG, true);
-        $xml .= $score('ScoreLow', self::LOW, self::LOW_BG);
-        $xml .= $score('ScoreLowAlt', self::LOW, '#FECDD3');
-        $xml .= $score('ScoreLowBold', self::LOW, self::LOW_BG, true);
+        $black = '#111111';
+        // Cukup: putih · Baik: biru tipis · Sangat Baik: hijau tipis · Belum: merah · Pending teori: kuning tipis
+        $xml .= $score('ScoreCukup', $black, '#FFFFFF', false, '0');
+        $xml .= $score('ScoreCukupAlt', $black, '#FFFFFF', false, '0');
+        $xml .= $score('ScoreCukupBold', $black, '#FFFFFF', true, '0');
+        $xml .= $score('ScoreCukupAltBold', $black, '#FFFFFF', true, '0');
+        $xml .= $score('ScoreBaik', $black, '#DBEAFE', false, '0');
+        $xml .= $score('ScoreBaikAlt', $black, '#BFDBFE', false, '0');
+        $xml .= $score('ScoreBaikBold', $black, '#DBEAFE', true, '0');
+        $xml .= $score('ScoreBaikAltBold', $black, '#BFDBFE', true, '0');
+        $xml .= $score('ScoreHigh', $black, '#CCFBF1', false, '0');
+        $xml .= $score('ScoreHighAlt', $black, '#99F6E4', false, '0');
+        $xml .= $score('ScoreHighBold', $black, '#CCFBF1', true, '0');
+        $xml .= $score('ScoreHighAltBold', $black, '#99F6E4', true, '0');
+        $xml .= $score('ScorePending', $black, '#FEF9C3', false, '0');
+        $xml .= $score('ScorePendingAlt', $black, '#FEF08A', false, '0');
+        $xml .= $score('ScorePendingBold', $black, '#FEF9C3', true, '0');
+        $xml .= $score('ScorePendingAltBold', $black, '#FEF08A', true, '0');
+        $xml .= $score('ScorePlain', $black, '#FFFFFF', false, '0');
+        $xml .= $score('ScorePlainAlt', $black, $cream, false, '0');
+        $xml .= $score('ScorePlainBold', $black, '#FFFFFF', true, '0');
+        $xml .= $score('ScorePlainAltBold', $black, $cream, true, '0');
+        $xml .= $score('ScoreLow', self::LOW, self::LOW_BG, false, '0');
+        $xml .= $score('ScoreLowAlt', self::LOW, '#FECDD3', false, '0');
+        $xml .= $score('ScoreLowBold', self::LOW, self::LOW_BG, true, '0');
+        $xml .= $score('ScoreLowAltBold', self::LOW, '#FECDD3', true, '0');
         $xml .= '<Style ss:ID="ScoreEmpty"><Font ss:FontName="Calibri" ss:Size="10" ss:Color="#A89888"/>'
             . '<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>' . $border() . '</Style>' . "\n";
         $xml .= '<Style ss:ID="ScoreEmptyAlt" ss:Parent="ScoreEmpty"><Interior ss:Color="' . $cream . '" ss:Pattern="Solid"/></Style>' . "\n";
 
-        $xml .= '<Style ss:ID="Foot"><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="' . $w . '"/>'
+        $xml .= '<Style ss:ID="Foot"><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#111111"/>'
             . '<Interior ss:Color="' . $ws . '" ss:Pattern="Solid"/>'
-            . '<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>' . $border() . '</Style>' . "\n";
+            . '<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>' . $border()
+            . '<NumberFormat ss:Format="0"/></Style>' . "\n";
         $xml .= '<Style ss:ID="FootLabel" ss:Parent="Foot"><Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:Indent="1"/></Style>' . "\n";
-        $xml .= $score('FootHigh', self::HIGH, self::HIGH_BG, true);
-        $xml .= $score('FootMid', self::MID, self::MID_BG, true);
-        $xml .= $score('FootLow', self::LOW, self::LOW_BG, true);
+        $xml .= $score('FootLow', self::LOW, self::LOW_BG, true, '0');
         $xml .= '<Style ss:ID="FootEmpty"><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#A89888"/>'
             . '<Interior ss:Color="' . $ws . '" ss:Pattern="Solid"/>'
             . '<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>' . $border() . '</Style>' . "\n";

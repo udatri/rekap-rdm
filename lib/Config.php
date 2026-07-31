@@ -132,6 +132,10 @@ final class Config
         if (!is_dir($dir)) {
             @mkdir($dir, 0777, true);
         }
+        // Pastikan Apache/XAMPP (daemon) bisa menulis kktp_settings.json dll.
+        if (is_dir($dir) && !is_writable($dir)) {
+            @chmod($dir, 0777);
+        }
         self::migrateLegacySchoolDataOnce($id);
         return $dir;
     }
@@ -200,6 +204,7 @@ final class Config
             'cache.json',
             'ujian.json',
             'ijazah_settings.json',
+            'kktp_settings.json',
             'konversi_nilai.json',
             'rapor_nilai.json',
             'kelas.json',
@@ -237,6 +242,7 @@ final class Config
             'cache.json',
             'ujian.json',
             'ijazah_settings.json',
+            'kktp_settings.json',
             'konversi_nilai.json',
             'rapor_nilai.json',
             'kelas.json',

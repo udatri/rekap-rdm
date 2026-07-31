@@ -20,7 +20,7 @@ function authPayload(?array $user): array
 {
     $caps = [
         'view_rekap', 'export', 'ujian', 'impor', 'kelas', 'sekolah', 'sekolah_manage',
-        'users', 'users_superadmin', 'bobot_ijazah', 'olah_rapor',
+        'users', 'users_superadmin', 'bobot_ijazah', 'kktp', 'olah_rapor',
     ];
     $capabilities = [];
     foreach ($caps as $c) {
@@ -144,6 +144,8 @@ try {
         'per_siswa' => 'view_rekap',
         'nilai_ijazah' => 'view_rekap',
         'ijazah_bobot' => 'view_rekap',
+        'kktp' => 'view_rekap',
+        'save_kktp' => 'kktp',
         'siswa_kelas' => 'view_rekap',
         'list_kelas' => 'view_rekap',
         'list_sekolah' => 'view_rekap',
@@ -528,7 +530,11 @@ try {
             'ujian' => $service->ujianStore()->list($q['jenis'] !== '' ? $q['jenis'] : null),
             'templates' => $service->ujianStore()->templates(),
         ],
-        'nilai_ijazah' => $service->ijazahService()->rekap($data, $q),
+        'nilai_ijazah' => (function () use ($service, $data, $q) {
+            $rekap = $service->ijazahService()->rekap($data, $q);
+            $rekap['kktp'] = $service->getKktp($data);
+            return $rekap;
+        })(),
         'ijazah_bobot' => [
             'bobot' => $service->ijazahService()->getBobot(),
         ],
@@ -537,6 +543,14 @@ try {
             return [
                 'message' => 'Bobot nilai ijazah disimpan.',
                 'bobot' => $bobot,
+            ];
+        })(),
+        'kktp' => $service->getKktp($data),
+        'save_kktp' => (function () use ($service, $data, $input) {
+            $kktp = $service->saveKktp($data, $input);
+            return [
+                'message' => 'KKTP disimpan.',
+                'kktp' => $kktp,
             ];
         })(),
         'get_ujian' => (function () use ($service, $q) {

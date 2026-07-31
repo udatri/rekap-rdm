@@ -168,16 +168,31 @@ final class Security
     {
         $dir = dirname($path);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            if (!@mkdir($dir, 0777, true) && !is_dir($dir)) {
+                throw new RuntimeException('Gagal membuat folder data: ' . $dir);
+            }
+        }
+        if (!is_writable($dir)) {
+            @chmod($dir, 0777);
+        }
+        if (!is_writable($dir)) {
+            throw new RuntimeException(
+                'Folder tidak dapat ditulis (permission). Jalankan: chmod 777 ' . $dir
+            );
         }
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
             throw new RuntimeException('Gagal encode JSON.');
         }
         $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
-        $fh = fopen($tmp, 'cb');
+        $fh = @fopen($tmp, 'cb');
         if ($fh === false) {
-            throw new RuntimeException('Gagal menulis data.');
+            // Fallback: tulis langsung jika temp gagal
+            if (@file_put_contents($path, $json) === false) {
+                throw new RuntimeException('Gagal menulis data. Cek permission folder: ' . $dir);
+            }
+            @chmod($path, 0666);
+            return;
         }
         try {
             if (!flock($fh, LOCK_EX)) {
@@ -193,10 +208,14 @@ final class Security
             fclose($fh);
         }
         if (!@rename($tmp, $path)) {
+            // Fallback copy+unlink (beberapa filesystem/mount tidak suka rename)
+            if (@copy($tmp, $path) === false) {
+                @unlink($tmp);
+                throw new RuntimeException('Gagal menyimpan data. Cek permission: ' . $dir);
+            }
             @unlink($tmp);
-            throw new RuntimeException('Gagal menyimpan data.');
         }
-        @chmod($path, 0664);
+        @chmod($path, 0666);
     }
 
     /** Aksi API yang hanya boleh GET (baca). */
@@ -210,6 +229,7 @@ final class Security
             'per_siswa' => true,
             'nilai_ijazah' => true,
             'ijazah_bobot' => true,
+            'kktp' => true,
             'siswa_kelas' => true,
             'list_kelas' => true,
             'list_sekolah' => true,

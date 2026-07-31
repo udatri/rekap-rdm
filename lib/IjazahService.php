@@ -171,9 +171,10 @@ final class IjazahService
         $kelas = trim((string) ($q['kelas'] ?? ''));
 
         $ujianIndex = $this->buildUjianIndex();
+        $recordsByNisn = $this->indexRecordsByNisn($data['records'] ?? []);
 
         if ($studentId !== '') {
-            $detail = $this->buildStudentIjazah($data, $studentId, $bobot, $ujianIndex, $q);
+            $detail = $this->buildStudentIjazah($data, $studentId, $bobot, $ujianIndex, $q, $recordsByNisn);
             return [
                 'mode' => 'detail',
                 'bobot' => $bobot,
@@ -183,29 +184,28 @@ final class IjazahService
             ];
         }
 
-        // Daftar: hanya siswa yang punya nilai ujian teori
+        // Daftar: semua siswa yang punya nilai (rataan/ijazah), meski ujian teori belum ada
         $students = $this->listCandidates($data, $kelas);
-        $teoriNisn = $this->nisnWithUjian('teori');
         $buckets = []; // angkatan => mapelKey => group
         $seen = []; // angkatan|nisnNorm
 
         foreach ($students as $st) {
             $stNisn = $this->normalizeNisn((string) ($st['nisn'] ?? $st['id'] ?? ''));
-            if ($stNisn === '' || !isset($teoriNisn[$stNisn])) {
+            if ($stNisn === '') {
                 continue;
             }
 
-            $detail = $this->buildStudentIjazah($data, $st['id'], $bobot, $ujianIndex, $q);
+            $detail = $this->buildStudentIjazah($data, $st['id'], $bobot, $ujianIndex, $q, $recordsByNisn);
             if ($detail === null) {
                 continue;
             }
 
             $nisn = $this->normalizeNisn((string) ($detail['nisn'] !== '' ? $detail['nisn'] : $detail['id']));
-            if ($nisn === '' || !isset($teoriNisn[$nisn])) {
+            if ($nisn === '') {
                 continue;
             }
 
-            $angkatan = $this->resolveAngkatan($data, $nisn);
+            $angkatan = $this->resolveAngkatanFromRows($recordsByNisn[$nisn] ?? []);
             $seenKey = $angkatan . '|' . $nisn;
             if (isset($seen[$seenKey])) {
                 continue;
@@ -214,6 +214,7 @@ final class IjazahService
 
             $mapelMeta = [];
             $nilaiMapel = [];
+            $hasTeoriMapel = [];
             $seenGroup = [];
             foreach ($detail['mapel'] as $m) {
                 $nilai = $m['nilai_ijazah'] ?? $m['rataan'] ?? null;
@@ -223,9 +224,13 @@ final class IjazahService
                 }
                 $kodeAsli = (string) $m['kode'];
                 $kode = $this->mapelGroupKode($kodeAsli);
+                $hasTeori = ($m['ujian_teori'] ?? null) !== null;
                 if (isset($seenGroup[$kode])) {
                     if (($nilaiMapel[$kode] ?? null) === null) {
                         $nilaiMapel[$kode] = (float) $nilai;
+                    }
+                    if ($hasTeori) {
+                        $hasTeoriMapel[$kode] = true;
                     }
                     continue;
                 }
@@ -237,6 +242,7 @@ final class IjazahService
                     'short' => $this->mapelGroupShort($kode),
                 ];
                 $nilaiMapel[$kode] = (float) $nilai;
+                $hasTeoriMapel[$kode] = $hasTeori;
             }
             $kodeSorted = $this->sortedMapelKeys(array_keys($seenGroup));
             $metaByKode = [];
@@ -274,6 +280,7 @@ final class IjazahService
                 'angkatan' => $angkatan,
                 'mapel_count' => count($mapelMeta),
                 'nilai_mapel' => $nilaiMapel,
+                'has_teori_mapel' => $hasTeoriMapel,
                 'rata_rataan' => $detail['ringkasan']['rata_rataan'],
                 'rata_praktek' => $detail['ringkasan']['rata_praktek'],
                 'rata_teori' => $detail['ringkasan']['rata_teori'],
@@ -308,6 +315,7 @@ final class IjazahService
                 }
                 $g['siswa'] = $siswaUniq;
 
+                // Rank berdasar rata ijazah
                 usort($g['siswa'], static function ($a, $b) {
                     $ia = $a['rata_ijazah'] ?? -INF;
                     $ib = $b['rata_ijazah'] ?? -INF;
@@ -321,6 +329,8 @@ final class IjazahService
                     $r['rank'] = $rank++;
                 }
                 unset($r);
+                // Tampilan awal: abjad nama
+                usort($g['siswa'], static fn ($a, $b) => strcasecmp((string) $a['nama'], (string) $b['nama']));
 
                 $kodeList = array_column($g['mapel'], 'kode');
                 $rataMapel = [];
@@ -332,7 +342,7 @@ final class IjazahService
                             $vals[] = (float) $v;
                         }
                     }
-                    $rataMapel[$kode] = $vals === [] ? null : round(array_sum($vals) / count($vals), 1);
+                    $rataMapel[$kode] = $vals === [] ? null : (float) round(array_sum($vals) / count($vals), 0);
                 }
 
                 $namaList = array_column($g['mapel'], 'nama');
@@ -414,14 +424,25 @@ final class IjazahService
     /** Angkatan = tahun ajaran saat di kelas XII (terbaru). */
     private function resolveAngkatan(array $data, string $nisnNorm): string
     {
-        $xiiYears = [];
-        $allYears = [];
+        $rows = [];
         foreach ($data['records'] as $r) {
             $match = $this->normalizeNisn((string) ($r['nisn'] ?? '')) === $nisnNorm
                 || $this->normalizeNisn((string) ($r['id'] ?? '')) === $nisnNorm;
-            if (!$match) {
-                continue;
+            if ($match) {
+                $rows[] = $r;
             }
+        }
+        return $this->resolveAngkatanFromRows($rows);
+    }
+
+    /**
+     * @param list<array<string,mixed>> $rows
+     */
+    private function resolveAngkatanFromRows(array $rows): string
+    {
+        $xiiYears = [];
+        $allYears = [];
+        foreach ($rows as $r) {
             $ta = trim((string) ($r['tahun_ajaran'] ?? ''));
             if ($ta === '') {
                 continue;
@@ -437,6 +458,32 @@ final class IjazahService
         }
         rsort($pool);
         return $pool[0];
+    }
+
+    /**
+     * Index records by NISN normalisasi (satu kali scan).
+     *
+     * @param list<array<string,mixed>> $records
+     * @return array<string, list<array<string,mixed>>>
+     */
+    private function indexRecordsByNisn(array $records): array
+    {
+        $by = [];
+        foreach ($records as $r) {
+            $keys = [];
+            $n1 = $this->normalizeNisn((string) ($r['nisn'] ?? ''));
+            $n2 = $this->normalizeNisn((string) ($r['id'] ?? ''));
+            if ($n1 !== '') {
+                $keys[$n1] = true;
+            }
+            if ($n2 !== '') {
+                $keys[$n2] = true;
+            }
+            foreach (array_keys($keys) as $k) {
+                $by[$k][] = $r;
+            }
+        }
+        return $by;
     }
 
     /**
@@ -561,23 +608,28 @@ final class IjazahService
         string $studentId,
         array $bobot,
         array $ujianIndex,
-        array $q
+        array $q,
+        ?array $recordsByNisn = null
     ): ?array {
         $want = $this->normalizeNisn($studentId);
-        $records = array_values(array_filter(
-            $data['records'],
-            function ($r) use ($studentId, $want) {
-                if ($want !== '' && (
-                    $this->normalizeNisn((string) ($r['id'] ?? '')) === $want
-                    || $this->normalizeNisn((string) ($r['nisn'] ?? '')) === $want
-                )) {
-                    return true;
+        if ($recordsByNisn !== null && $want !== '' && isset($recordsByNisn[$want])) {
+            $records = $recordsByNisn[$want];
+        } else {
+            $records = array_values(array_filter(
+                $data['records'],
+                function ($r) use ($studentId, $want) {
+                    if ($want !== '' && (
+                        $this->normalizeNisn((string) ($r['id'] ?? '')) === $want
+                        || $this->normalizeNisn((string) ($r['nisn'] ?? '')) === $want
+                    )) {
+                        return true;
+                    }
+                    return (string) $r['id'] === $studentId
+                        || (string) $r['nisn'] === $studentId
+                        || (string) $r['nis'] === $studentId;
                 }
-                return (string) $r['id'] === $studentId
-                    || (string) $r['nisn'] === $studentId
-                    || (string) $r['nis'] === $studentId;
-            }
-        ));
+            ));
+        }
         if ($records === []) {
             return null;
         }
@@ -739,7 +791,7 @@ final class IjazahService
         foreach ($parts as $p) {
             $total += $p['nilai'] * ($p['bobot'] / $bobotAktif);
         }
-        return round($total, 2);
+        return (float) round($total, 0);
     }
 
     private function ringkasanRows(array $rows): array
@@ -763,14 +815,15 @@ final class IjazahService
             }
         }
 
-        $avg = static fn (array $a) => $a === [] ? null : round(array_sum($a) / count($a), 1);
+        $avg1 = static fn (array $a) => $a === [] ? null : round(array_sum($a) / count($a), 1);
+        $avg0 = static fn (array $a) => $a === [] ? null : (float) round(array_sum($a) / count($a), 0);
 
         return [
             'mapel_count' => count($rows),
-            'rata_rataan' => $avg($rataan),
-            'rata_praktek' => $avg($praktek),
-            'rata_teori' => $avg($teori),
-            'rata_ijazah' => $avg($ijazah),
+            'rata_rataan' => $avg1($rataan),
+            'rata_praktek' => $avg1($praktek),
+            'rata_teori' => $avg1($teori),
+            'rata_ijazah' => $avg0($ijazah),
         ];
     }
 
