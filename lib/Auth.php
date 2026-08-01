@@ -159,6 +159,7 @@ final class Auth
             'bobot_ijazah' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
             'kktp' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
             'olah_rapor' => [UserStore::ROLE_SUPERADMIN, UserStore::ROLE_ADMIN],
+            'app_update' => [UserStore::ROLE_SUPERADMIN],
         ];
         return in_array($role, $map[$capability] ?? [], true);
     }

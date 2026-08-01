@@ -235,6 +235,7 @@ final class Security
             'list_sekolah' => true,
             'list_import' => true,
             'health' => true,
+            'app_version' => true,
             'list_ujian' => true,
             'get_ujian' => true,
             'ujian_templates' => true,

@@ -2134,11 +2134,57 @@
       </section>`;
   }
 
+  function appUpdatePanelHtml(app) {
+    if (!can('app_update')) return '';
+    const a = app || {};
+    const available = a.available === true;
+    let meta = '';
+    if (!available) {
+      meta = `<p class="muted">${esc(a.reason || 'Update via git tidak tersedia di server ini.')}</p>`;
+    } else {
+      const when = a.committed_at
+        ? new Date(a.committed_at).toLocaleString('id-ID')
+        : '—';
+      const sync = a.behind > 0
+        ? `<span class="badge">Ada ${esc(String(a.behind))} update</span>`
+        : '<span class="badge rank">Sudah terbaru</span>';
+      const dirty = a.dirty ? ' <span class="badge" style="background:#fef3c7;color:#92400e">Ada perubahan lokal</span>' : '';
+      meta = `<p class="muted">Versi <code>${esc(a.commit || '—')}</code> · cabang <code>${esc(a.branch || '—')}</code> · ${esc(when)} ${sync}${dirty}</p>
+        <p class="muted">${esc(a.message || '')}${a.remote ? ` · <code>${esc(a.remote)}</code>` : ''}</p>
+        ${a.fetch_error ? `<p class="muted" style="color:#b91c1c">Cek remote: ${esc(a.fetch_error)}</p>` : ''}`;
+    }
+    return `
+      <section class="panel" id="panelUpdateApp">
+        <div class="panel-head">
+          <div>
+            <h2 style="color:#0f5c45">Update aplikasi</h2>
+            <p>Ambil versi terbaru dari repository (git pull). Data sekolah, Excel, dan <code>config.php</code> tidak ikut berubah.</p>
+            ${meta}
+          </div>
+          <div class="panel-actions">
+            <button type="button" class="btn ghost" id="btnCekUpdateApp" ${available ? '' : 'disabled'}>Cek update</button>
+            <button type="button" class="btn primary" id="btnUpdateApp" ${available ? '' : 'disabled'}>Update Aplikasi</button>
+          </div>
+        </div>
+        <pre class="muted" id="updateAppLog" hidden style="white-space:pre-wrap;font-size:0.85rem;margin:0;max-height:12rem;overflow:auto"></pre>
+      </section>`;
+  }
+
+  function fillAppUpdatePanel(app) {
+    const panel = $('#panelUpdateApp');
+    if (!panel || !can('app_update')) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = appUpdatePanelHtml(app);
+    const next = wrap.firstElementChild;
+    if (next) panel.replaceWith(next);
+  }
+
   function renderPengaturanSekolah(data) {
     const canManage = can('sekolah_manage');
     const list = data.sekolah || [];
     const aktif = data.aktif || list.find((s) => s.current) || list.find((s) => s.aktif) || list[0] || {};
     const usage = data.usage || { pernah: 0, sedang_pakai: 0, siap: 0, total_slots: 0, history: [] };
+    const appPanel = appUpdatePanelHtml(data.app);
     const fmtUsageAt = (iso) => {
       if (!iso) return '—';
       const d = new Date(iso);
@@ -2151,6 +2197,7 @@
       const edit = aktif;
       state.sekolahEditId = edit.id || '';
       view.innerHTML = `
+        ${appPanel}
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -2266,6 +2313,7 @@
     </tr>`).join('') || `<tr><td colspan="6" class="center muted">Belum ada sekolah yang tercatat memakai (selain Sekolah 1).</td></tr>`;
 
     view.innerHTML = `
+      ${appPanel}
       <section class="panel">
         <div class="panel-head">
           <div>
@@ -2909,6 +2957,58 @@
           renderImporData(data);
         } catch (err) {
           showStatus(err.message, true);
+        }
+      })();
+      return;
+    }
+
+    if (e.target.closest('#btnCekUpdateApp')) {
+      (async () => {
+        try {
+          showStatus('Memeriksa update dari remote…');
+          const res = await api('app_version');
+          fillAppUpdatePanel(res.app);
+          const a = res.app || {};
+          if (!a.available) {
+            showStatus(a.reason || 'Update tidak tersedia.', true);
+          } else if (a.behind > 0) {
+            showStatus(`Tersedia ${a.behind} commit baru dari remote.`);
+          } else {
+            showStatus('Sudah versi terbaru.');
+          }
+        } catch (err) {
+          showStatus(err.message, true);
+        }
+      })();
+      return;
+    }
+
+    if (e.target.closest('#btnUpdateApp')) {
+      if (!confirm('Update aplikasi dari remote git sekarang?\n\nData sekolah & config.php aman (tidak diubah). Hard-refresh browser setelah selesai.')) return;
+      (async () => {
+        const btn = $('#btnUpdateApp');
+        const logEl = $('#updateAppLog');
+        try {
+          if (btn) btn.disabled = true;
+          showStatus('Mengupdate aplikasi…');
+          const res = await apiPost('update_app', {});
+          fillAppUpdatePanel(res.app);
+          if (logEl) {
+            logEl.hidden = !res.log;
+            logEl.textContent = res.log || '';
+          }
+          showStatus(res.message || 'Update selesai.');
+          if (res.updated) {
+            setTimeout(() => {
+              if (confirm('Update berhasil. Muat ulang halaman sekarang?')) {
+                location.reload();
+              }
+            }, 400);
+          }
+        } catch (err) {
+          showStatus(err.message, true);
+        } finally {
+          if (btn) btn.disabled = false;
         }
       })();
       return;

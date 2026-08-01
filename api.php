@@ -20,7 +20,7 @@ function authPayload(?array $user): array
 {
     $caps = [
         'view_rekap', 'export', 'ujian', 'impor', 'kelas', 'sekolah', 'sekolah_manage',
-        'users', 'users_superadmin', 'bobot_ijazah', 'kktp', 'olah_rapor',
+        'users', 'users_superadmin', 'bobot_ijazah', 'kktp', 'olah_rapor', 'app_update',
     ];
     $capabilities = [];
     foreach ($caps as $c) {
@@ -149,6 +149,8 @@ try {
         'siswa_kelas' => 'view_rekap',
         'list_kelas' => 'view_rekap',
         'list_sekolah' => 'view_rekap',
+        'app_version' => 'app_update',
+        'update_app' => 'app_update',
         'save_ijazah_bobot' => 'bobot_ijazah',
         'add_kelas' => 'kelas',
         'delete_kelas' => 'kelas',
@@ -198,6 +200,7 @@ try {
         'list_konversi', 'save_konversi', 'delete_konversi', 'uji_konversi',
         'save_konversi_settings', 'run_konversi',
         'list_rapor_nilai', 'get_rapor_nilai', 'delete_rapor_nilai', 'update_rapor_nilai',
+        'app_version', 'update_app',
     ];
     // import_konversi & create_rapor_nilai butuh data siswa dari cache
     $data = in_array($action, $lightActions, true)
@@ -402,12 +405,44 @@ try {
         'semua_semester' => $service->rekapSemuaSemester($data, $q),
         'per_siswa' => $service->rekapPerSiswa($data, $q),
         'list_kelas' => $service->listKelas($data),
-        'list_sekolah' => [
-            'sekolah' => $service->sekolahStore()->listForApi(),
-            'aktif' => $service->sekolahStore()->activeForApi(),
-            'cetak' => $service->sekolahStore()->blokCetak(),
-            'usage' => $service->sekolahStore()->usageStats(),
-        ],
+        'list_sekolah' => (function () use ($service) {
+            $out = [
+                'sekolah' => $service->sekolahStore()->listForApi(),
+                'aktif' => $service->sekolahStore()->activeForApi(),
+                'cetak' => $service->sekolahStore()->blokCetak(),
+                'usage' => $service->sekolahStore()->usageStats(),
+            ];
+            if (Auth::can('app_update')) {
+                require_once __DIR__ . '/lib/AppUpdateService.php';
+                try {
+                    $out['app'] = (new AppUpdateService())->status(false);
+                } catch (Throwable $e) {
+                    $out['app'] = [
+                        'available' => false,
+                        'reason' => $e->getMessage(),
+                        'branch' => null,
+                        'commit' => null,
+                        'commit_full' => null,
+                        'message' => null,
+                        'committed_at' => null,
+                        'remote' => null,
+                        'dirty' => false,
+                        'ahead' => 0,
+                        'behind' => 0,
+                        'can_update' => false,
+                    ];
+                }
+            }
+            return $out;
+        })(),
+        'app_version' => (function () {
+            require_once __DIR__ . '/lib/AppUpdateService.php';
+            return ['app' => (new AppUpdateService())->status(true)];
+        })(),
+        'update_app' => (function () {
+            require_once __DIR__ . '/lib/AppUpdateService.php';
+            return (new AppUpdateService())->update();
+        })(),
         'save_sekolah' => (function () use ($service, $input) {
             if (!Auth::can('sekolah_manage')) {
                 $user = Auth::user();
