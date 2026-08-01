@@ -2138,27 +2138,28 @@
     if (!can('app_update')) return '';
     const a = app || {};
     const available = a.available === true;
+    const method = a.method === 'zip' ? 'ZIP GitHub' : (a.method === 'git' ? 'git pull' : '—');
     let meta = '';
     if (!available) {
-      meta = `<p class="muted">${esc(a.reason || 'Update via git tidak tersedia di server ini.')}</p>`;
+      meta = `<p class="muted">${esc(a.reason || 'Update tidak tersedia di server ini.')}</p>`;
     } else {
       const when = a.committed_at
         ? new Date(a.committed_at).toLocaleString('id-ID')
         : '—';
       const sync = a.behind > 0
-        ? `<span class="badge">Ada ${esc(String(a.behind))} update</span>`
+        ? `<span class="badge">Ada update${a.remote_commit ? ` (${esc(a.remote_commit)})` : ''}</span>`
         : '<span class="badge rank">Sudah terbaru</span>';
       const dirty = a.dirty ? ' <span class="badge" style="background:#fef3c7;color:#92400e">Ada perubahan lokal</span>' : '';
-      meta = `<p class="muted">Versi <code>${esc(a.commit || '—')}</code> · cabang <code>${esc(a.branch || '—')}</code> · ${esc(when)} ${sync}${dirty}</p>
+      meta = `<p class="muted">Mode <strong>${esc(method)}</strong> · versi <code>${esc(a.commit || 'belum tercatat')}</code> · cabang <code>${esc(a.branch || '—')}</code> · ${esc(when)} ${sync}${dirty}</p>
         <p class="muted">${esc(a.message || '')}${a.remote ? ` · <code>${esc(a.remote)}</code>` : ''}</p>
-        ${a.fetch_error ? `<p class="muted" style="color:#b91c1c">Cek remote: ${esc(a.fetch_error)}</p>` : ''}`;
+        ${a.fetch_error ? `<p class="muted" style="color:#b91c1c">${esc(a.fetch_error)}</p>` : ''}`;
     }
     return `
       <section class="panel" id="panelUpdateApp">
         <div class="panel-head">
           <div>
             <h2 style="color:#0f5c45">Update aplikasi</h2>
-            <p>Ambil versi terbaru dari repository (git pull). Data sekolah, Excel, dan <code>config.php</code> tidak ikut berubah.</p>
+            <p>Ambil versi terbaru dari GitHub. Di hosting tanpa git dipakai unduhan ZIP. Data sekolah, Excel, dan <code>config.php</code> tidak ikut berubah.</p>
             ${meta}
           </div>
           <div class="panel-actions">

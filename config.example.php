@@ -32,4 +32,10 @@ return [
 
     // Izinkan impor dari URL cloud
     'allow_cloud_import' => true,
+
+    // Update aplikasi (tombol di Pengaturan sekolah — superadmin)
+    'update' => [
+        'repo' => 'udatri/rekap-rdm',
+        'branch' => 'main',
+    ],
 ];
