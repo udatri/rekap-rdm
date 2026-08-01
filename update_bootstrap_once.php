@@ -7,23 +7,35 @@ declare(strict_types=1);
  *
  * Cara:
  * 1. Upload file ini ke folder aplikasi (sama level index.php)
- * 2. Login sebagai superadmin di browser
+ * 2. Login sebagai superadmin di browser (tab yang sama)
  * 3. Buka: https://domain-anda/update_bootstrap_once.php
  * 4. Setelah sukses, HAPUS file ini dari server
  *
  * Tidak menimpa: config.php, data/, semua/, uploads/
  */
-session_start();
 
+require_once __DIR__ . '/lib/Config.php';
 require_once __DIR__ . '/lib/Auth.php';
 require_once __DIR__ . '/lib/Security.php';
 
+// Jangan panggil session_start() mentah — harus lewat Auth (cookie RDMSESSID)
 Auth::startSession();
 $user = Auth::user();
-if ($user === null || ($user['role'] ?? '') !== 'superadmin') {
+if ($user === null) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    echo "Akses ditolak. Login sebagai superadmin dulu, lalu buka ulang URL ini.\n";
+    echo "Akses ditolak: sesi login tidak terbaca.\n";
+    echo "Login dulu di aplikasi (superadmin), lalu buka ulang URL ini di tab yang sama.\n";
+    echo "Jangan buka di jendela privat/incognito terpisah dari sesi login.\n";
+    exit;
+}
+if (!Auth::can('app_update', $user)) {
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    $role = (string) ($user['role'] ?? '');
+    $nama = (string) ($user['nama'] ?? $user['username'] ?? '');
+    echo "Akses ditolak: akun \"{$nama}\" (role: {$role}) bukan superadmin.\n";
+    echo "Keluar, login ulang sebagai superadmin, lalu buka URL ini lagi.\n";
     exit;
 }
 
