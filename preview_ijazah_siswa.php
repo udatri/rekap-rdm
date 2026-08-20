@@ -688,7 +688,7 @@ try {
             <col class="value-col">
           </colgroup>
           <tr>
-            <td class="label">Educational units</td>
+            <td class="label">Educational unit</td>
             <td class="sep">:</td>
             <td class="value value-strong"><?= $esc($madrasahUpper) ?></td>
           </tr>
@@ -702,7 +702,7 @@ try {
 
       <p class="cert-abs cert-legal">
         based on the decision of the head of <strong><?= $esc($madrasahUpper) ?></strong> Number <?= $esc($skNomor) ?> of
-        <?= $esc($skYear) ?> dated <?= $esc($skTanggalLabel) ?> after meeting all criteria in accordance with laws and regulations
+        <?= $esc($skYear) ?> dated <?= $esc($skTanggalLabel) ?> after meeting all criterias in accordance with laws and regulations
       </p>
 
       <div class="cert-photo" aria-hidden="true"></div>

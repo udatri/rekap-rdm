@@ -17,7 +17,7 @@ final class IjazahPreviewHelper
         'FIK' => 'Fikih',
         'SKI' => 'History of Islamic Culture',
         'PP' => 'Pancasila Education',
-        'BINDO' => 'Indonesian Language',
+        'BINDO' => 'Indonesia',
         'MTK' => 'Math',
         'IPAT' => 'Natural Sciences',
         'IPST' => 'Social Sciences',
