@@ -17,7 +17,7 @@ $csrf = Security::csrfToken();
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/style.css?v=20260801x" />
+  <link rel="stylesheet" href="assets/style.css?v=20260820b" />
 </head>
 <body>
   <div class="app">
@@ -185,6 +185,6 @@ $csrf = Security::csrfToken();
       <p>Sumber data: folder <code>semua/</code> · Filter: tahun ajaran, semester, kelas, ID siswa</p>
     </footer>
   </div>
-  <script src="assets/app.js?v=20260801z" defer></script>
+  <script src="assets/app.js?v=20260820b" defer></script>
 </body>
 </html>

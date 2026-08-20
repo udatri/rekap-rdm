@@ -1477,40 +1477,277 @@
       display.textContent = `${rapor}%`;
       display.classList.toggle('bobot-invalid', rapor < 0);
     }
+    updateBobotHint();
+  }
+
+  function syncBobotMapelRow(row) {
+    if (!row) return true;
+    const praktek = Number(row.querySelector('[data-bobot-praktek]')?.value || 0);
+    const teori = Number(row.querySelector('[data-bobot-teori]')?.value || 0);
+    const rapor = Math.round((100 - praktek - teori) * 100) / 100;
+    const display = row.querySelector('[data-bobot-rapor]');
+    if (display) {
+      display.textContent = `${rapor}%`;
+      display.classList.toggle('bobot-invalid', rapor < 0);
+    }
+    return rapor >= 0 && praktek + teori <= 100;
+  }
+
+  function syncBobotMapelRows() {
+    let ok = true;
+    document.querySelectorAll('#bobotPerMapelTable [data-bobot-kode]').forEach((row) => {
+      if (!syncBobotMapelRow(row)) ok = false;
+    });
+    return ok;
+  }
+
+  function toggleBobotMode() {
+    const mode = $('#bMode')?.value || 'semua';
+    const globalPanel = $('#bobotGlobalPanel');
+    const perMapelPanel = $('#bobotPerMapelPanel');
+    if (globalPanel) globalPanel.hidden = mode !== 'semua';
+    if (perMapelPanel) perMapelPanel.hidden = mode !== 'per_mapel';
+    updateBobotHint();
+  }
+
+  function updateBobotHint() {
     const hint = $('#bobotHintAuto');
-    if (hint) {
-      hint.textContent = rapor < 0
-        ? 'Total praktek + teori melebihi 100%. Kurangi salah satu.'
-        : `Nilai ijazah = (rataan × ${rapor}%) + (praktek × ${praktek}%) + (teori × ${teori}%). Rapor terkunci: 100 − praktek − teori.`;
+    if (!hint) return;
+    const mode = $('#bMode')?.value || 'semua';
+    if (mode === 'per_mapel') {
+      hint.textContent = 'Mode per mapel: atur bobot praktek dan teori tiap mata pelajaran. Rapor otomatis = 100 − praktek − teori.';
+      return;
+    }
+    const praktek = Number($('#bPraktek')?.value || 0);
+    const teori = Number($('#bTeori')?.value || 0);
+    const rapor = Math.round((100 - praktek - teori) * 100) / 100;
+    hint.textContent = rapor < 0
+      ? 'Total praktek + teori melebihi 100%. Kurangi salah satu.'
+      : `Nilai ijazah = (rataan × ${rapor}%) + (praktek × ${praktek}%) + (teori × ${teori}%). Rapor terkunci: 100 − praktek − teori.`;
+  }
+
+  function bobotMapelCodes(ctx) {
+    const labels = ctx?.mapel_labels || {};
+    const order = Array.isArray(ctx?.mapel_order) ? ctx.mapel_order : [];
+    const codes = order.length ? [...order] : Object.keys(labels);
+    const seen = new Set();
+    return codes.filter((k) => {
+      const key = String(k);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function bobotPerMapelTableHtml(bobot, ctx) {
+    const b = bobot || {};
+    const mode = b.mode === 'per_mapel' ? 'per_mapel' : 'semua';
+    const perMapel = b.mapel || {};
+    const defPraktek = Number(b.praktek ?? 0);
+    const defTeori = Number(b.teori ?? 0);
+    const rows = bobotMapelCodes(ctx).map((kode) => {
+      const row = perMapel[kode] || {};
+      const praktek = row.praktek ?? defPraktek;
+      const teori = row.teori ?? defTeori;
+      const rapor = Math.round((100 - Number(praktek) - Number(teori)) * 100) / 100;
+      const nama = ctx?.mapel_labels?.[kode] || kode;
+      const short = ctx?.mapel_short?.[kode] || kode;
+      return `<tr data-bobot-kode="${esc(kode)}">
+        <td><strong>${esc(short)}</strong><div class="muted meta-line">${esc(nama)}</div></td>
+        <td class="num"><span class="bobot-locked bobot-mapel-rapor ${rapor < 0 ? 'bobot-invalid' : ''}" data-bobot-rapor>${esc(rapor)}%</span></td>
+        <td class="num"><input type="number" class="bobot-mapel-input" data-bobot-praktek min="0" max="100" step="1" value="${esc(praktek)}" /></td>
+        <td class="num"><input type="number" class="bobot-mapel-input" data-bobot-teori min="0" max="100" step="1" value="${esc(teori)}" /></td>
+      </tr>`;
+    }).join('');
+    return `
+      <div id="bobotPerMapelPanel" class="bobot-per-mapel" ${mode === 'per_mapel' ? '' : 'hidden'}>
+        <div class="table-wrap table-wrap-bobot">
+          <table id="bobotPerMapelTable" class="bobot-mapel-table">
+            <thead>
+              <tr>
+                <th>Mata pelajaran</th>
+                <th class="num">Rapor %</th>
+                <th class="num">Praktek %</th>
+                <th class="num">Teori %</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function collectBobotPayload() {
+    const mode = $('#bMode')?.value || 'semua';
+    const praktek = Number($('#bPraktek')?.value || 0);
+    const teori = Number($('#bTeori')?.value || 0);
+    const payload = { mode, praktek, teori };
+    if (mode === 'per_mapel') {
+      payload.mapel = {};
+      document.querySelectorAll('#bobotPerMapelTable [data-bobot-kode]').forEach((row) => {
+        const kode = row.dataset.bobotKode;
+        if (!kode) return;
+        payload.mapel[kode] = {
+          praktek: Number(row.querySelector('[data-bobot-praktek]')?.value || 0),
+          teori: Number(row.querySelector('[data-bobot-teori]')?.value || 0),
+        };
+      });
+    }
+    return payload;
+  }
+
+  const IJAZAH_META_PREFIX = 'rdm_ijazah_preview_meta:';
+  const IJAZAH_GLOBAL_KEY = 'rdm_ijazah_preview_global';
+
+  function loadIjazahGlobalMeta() {
+    try {
+      const raw = localStorage.getItem(IJAZAH_GLOBAL_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
     }
   }
 
-  function bobotFormHtml(bobot) {
-    const b = bobot || { rataan: 60, praktek: 20, teori: 20 };
+  function saveIjazahGlobalMeta(meta) {
+    const globalFields = ['npsn', 'sk_nomor', 'sk_tanggal'];
+    const prev = loadIjazahGlobalMeta();
+    const next = { ...prev };
+    globalFields.forEach((k) => {
+      if (meta[k]) next[k] = meta[k];
+    });
+    try {
+      localStorage.setItem(IJAZAH_GLOBAL_KEY, JSON.stringify(next));
+    } catch {
+      /* abaikan quota */
+    }
+  }
+
+  function loadIjazahPreviewMeta(nisn) {
+    const global = loadIjazahGlobalMeta();
+    try {
+      const raw = localStorage.getItem(IJAZAH_META_PREFIX + nisn);
+      const local = raw ? JSON.parse(raw) : {};
+      return { ...global, ...local };
+    } catch {
+      return { ...global };
+    }
+  }
+
+  function saveIjazahPreviewMeta(nisn, meta) {
+    try {
+      localStorage.setItem(IJAZAH_META_PREFIX + nisn, JSON.stringify(meta));
+    } catch {
+      /* abaikan quota */
+    }
+    saveIjazahGlobalMeta(meta);
+  }
+
+  function collectIjazahPreviewMeta() {
+    const form = $('#formIjazahPreviewMeta');
+    if (!form) return {};
+    const read = (name) => (form.elements[name]?.value ?? '').trim();
+    return {
+      no_ijazah: read('no_ijazah'),
+      npsn: read('npsn'),
+      ttl: read('ttl'),
+      tgl_lulus: read('tgl_lulus'),
+      sk_nomor: read('sk_nomor'),
+      sk_tanggal: read('sk_tanggal'),
+      serial: read('serial'),
+    };
+  }
+
+  function ijazahPreviewUrl(id, meta, print = false) {
+    const p = new URLSearchParams({ id });
+    Object.entries(meta || {}).forEach(([k, v]) => {
+      if (v) p.set(k, v);
+    });
+    if (print) p.set('print', '1');
+    return `preview_ijazah_siswa.php?${p.toString()}`;
+  }
+
+  function ijazahPreviewMetaFormHtml(nisn, meta) {
+    const m = meta || {};
+    return `
+      <form id="formIjazahPreviewMeta" class="ijazah-meta-form" autocomplete="off" data-nisn="${esc(nisn)}">
+        <div class="ijazah-meta-title">Data cetak ijazah (Inggris)</div>
+        <label>
+          <span>Nomor ijazah</span>
+          <input type="text" name="no_ijazah" maxlength="80" value="${esc(m.no_ijazah || '')}" placeholder="MA-IKM 26 120003587" />
+        </label>
+        <label>
+          <span>NPSN</span>
+          <input type="text" name="npsn" maxlength="20" value="${esc(m.npsn || '')}" placeholder="20411895" />
+        </label>
+        <label>
+          <span>Nomor seri / barcode</span>
+          <input type="text" name="serial" maxlength="80" value="${esc(m.serial || '')}" placeholder="MA-26 000274614" />
+        </label>
+        <label class="span-2">
+          <span>Tempat, tanggal lahir (Inggris)</span>
+          <input type="text" name="ttl" maxlength="120" value="${esc(m.ttl || '')}" placeholder="KARAWANG, 14 February 2008" />
+        </label>
+        <label>
+          <span>Tanggal lulus</span>
+          <input type="date" name="tgl_lulus" value="${esc(m.tgl_lulus || '')}" />
+        </label>
+        <label>
+          <span>Nomor SK kepala madrasah</span>
+          <input type="text" name="sk_nomor" maxlength="40" value="${esc(m.sk_nomor || '')}" placeholder="29" />
+        </label>
+        <label>
+          <span>Tanggal SK</span>
+          <input type="date" name="sk_tanggal" value="${esc(m.sk_tanggal || '')}" />
+        </label>
+        <p class="muted ijazah-meta-hint">NPSN dan SK disimpan untuk semua siswa. Data per siswa (nomor ijazah, TTL, dll.) disimpan per NISN di perangkat ini.</p>
+        <div class="ijazah-meta-actions filter-actions">
+          <button type="button" class="btn primary" data-ijazah-save="${esc(nisn)}">Simpan</button>
+          <button type="button" class="btn ghost" data-ijazah-preview="${esc(nisn)}">Preview ijazah (EN)</button>
+          <button type="button" class="btn ghost" data-ijazah-preview="${esc(nisn)}" data-print="1">Cetak / PDF</button>
+        </div>
+      </form>`;
+  }
+
+  function bobotFormHtml(bobot, ctx = {}) {
+    const b = bobot || { mode: 'semua', rataan: 60, praktek: 20, teori: 20, mapel: {} };
+    const mode = b.mode === 'per_mapel' ? 'per_mapel' : 'semua';
     const raporAuto = Math.round((100 - Number(b.praktek) - Number(b.teori)) * 100) / 100;
     if (!can('bobot_ijazah')) {
-      return `<p class="muted bobot-hint">Bobot nilai ijazah: rapor ${esc(b.rataan)}% · praktek ${esc(b.praktek)}% · teori ${esc(b.teori)}%.</p>`;
+      const modeLabel = mode === 'per_mapel' ? 'per mapel' : 'semua mapel';
+      return `<p class="muted bobot-hint">Bobot nilai ijazah (${modeLabel}): rapor ${esc(b.rataan)}% · praktek ${esc(b.praktek)}% · teori ${esc(b.teori)}%.</p>`;
     }
     return `
       <form id="formBobotIjazah" class="bobot-form" autocomplete="off">
         <div class="bobot-title">Bobot nilai ijazah</div>
-        <label>
-          <span>Rataan rapor % <em class="bobot-auto-tag">(terkunci)</em></span>
-          <input type="hidden" id="bRataan" value="${esc(raporAuto)}" />
-          <div id="bRataanDisplay" class="bobot-locked ${raporAuto < 0 ? 'bobot-invalid' : ''}" aria-live="polite">${esc(raporAuto)}%</div>
-        </label>
-        <label>
-          <span>Ujian praktek %</span>
-          <input type="number" id="bPraktek" min="0" max="100" step="1" value="${esc(b.praktek)}" required />
-        </label>
-        <label>
-          <span>Ujian teori %</span>
-          <input type="number" id="bTeori" min="0" max="100" step="1" value="${esc(b.teori)}" required />
-        </label>
-        <div class="filter-actions">
-          <button type="submit" class="btn primary">Simpan bobot</button>
+        <div class="bobot-form-head">
+          <label class="bobot-mode-label">
+            <span>Penerapan bobot</span>
+            <select id="bMode">
+              <option value="semua" ${mode === 'semua' ? 'selected' : ''}>Semua mapel</option>
+              <option value="per_mapel" ${mode === 'per_mapel' ? 'selected' : ''}>Per mapel</option>
+            </select>
+          </label>
+          <div class="filter-actions bobot-save-actions">
+            <button type="submit" class="btn primary">Simpan bobot</button>
+          </div>
         </div>
-        <p class="muted bobot-hint" id="bobotHintAuto">Nilai ijazah = (rataan × ${esc(raporAuto)}%) + (praktek × ${esc(b.praktek)}%) + (teori × ${esc(b.teori)}%). Rapor terkunci: 100 − praktek − teori.</p>
+        <div id="bobotGlobalPanel" class="bobot-global-panel" ${mode === 'per_mapel' ? 'hidden' : ''}>
+          <label>
+            <span>Rataan rapor % <em class="bobot-auto-tag">(terkunci)</em></span>
+            <input type="hidden" id="bRataan" value="${esc(raporAuto)}" />
+            <div id="bRataanDisplay" class="bobot-locked ${raporAuto < 0 ? 'bobot-invalid' : ''}" aria-live="polite">${esc(raporAuto)}%</div>
+          </label>
+          <label>
+            <span>Ujian praktek %</span>
+            <input type="number" id="bPraktek" min="0" max="100" step="1" value="${esc(b.praktek)}" required />
+          </label>
+          <label>
+            <span>Ujian teori %</span>
+            <input type="number" id="bTeori" min="0" max="100" step="1" value="${esc(b.teori)}" required />
+          </label>
+        </div>
+        ${bobotPerMapelTableHtml(b, ctx)}
+        <p class="muted bobot-hint" id="bobotHintAuto"></p>
       </form>`;
   }
 
@@ -1676,7 +1913,7 @@
             <a class="btn primary" id="btnExportIjazah" href="#">Export Excel</a>
           </div>
         </div>
-        ${bobotFormHtml(data.bobot)}
+        ${bobotFormHtml(data.bobot, data)}
         <div class="stats" style="margin:0.75rem 0">
           <div class="stat">Angkatan<strong>${fmt(data.total_angkatan ?? angkatanList.length, 0)}</strong></div>
           <div class="stat">Kelompok<strong>${fmt(data.total_kelompok, 0)}</strong></div>
@@ -1696,6 +1933,8 @@
       if (f.semester) p.set('semester', f.semester);
       btnExport.href = `unduh_nilai_ijazah.php?${p.toString()}`;
     }
+    toggleBobotMode();
+    updateBobotHint();
   }
 
   function renderIjazahDetail(data) {
@@ -1751,6 +1990,9 @@
     </tr>`;
     }).join('');
 
+    const previewId = s.nisn || s.id;
+    const previewMeta = loadIjazahPreviewMeta(previewId);
+
     view.innerHTML = `
       <section class="panel ijazah-kelompok">
         <div class="ijazah-group-banner">
@@ -1764,7 +2006,8 @@
             <button type="button" class="btn ghost" data-ijazah-back>Kembali</button>
           </div>
         </div>
-        ${bobotFormHtml(data.bobot)}
+        ${ijazahPreviewMetaFormHtml(previewId, previewMeta)}
+        ${bobotFormHtml(data.bobot, data)}
         <div class="stats" style="margin:0.75rem 0">
           <div class="stat">Mapel<strong>${fmt(s.ringkasan.mapel_count, 0)}</strong></div>
           <div class="stat">Rata rataan<strong>${fmtRata(s.ringkasan.rata_rataan)}</strong></div>
@@ -1796,6 +2039,8 @@
       const p = new URLSearchParams({ id: s.nisn || s.id });
       btnExport.href = `unduh_nilai_ijazah.php?${p.toString()}`;
     }
+    toggleBobotMode();
+    updateBobotHint();
   }
 
   function syncFilterPanel() {
@@ -2795,9 +3040,26 @@
     }
   });
 
+  view.addEventListener('change', (e) => {
+    if (e.target.id === 'bMode') {
+      toggleBobotMode();
+    }
+  });
+
   view.addEventListener('input', (e) => {
     if (e.target.id === 'bPraktek' || e.target.id === 'bTeori') {
       syncBobotRaporAuto();
+    }
+    if (e.target.matches('#bobotPerMapelTable [data-bobot-praktek], #bobotPerMapelTable [data-bobot-teori]')) {
+      syncBobotMapelRow(e.target.closest('[data-bobot-kode]'));
+    }
+    const metaForm = e.target.closest('#formIjazahPreviewMeta');
+    if (metaForm) {
+      const nisn = metaForm.dataset.nisn || '';
+      if (nisn) {
+        const meta = collectIjazahPreviewMeta();
+        saveIjazahPreviewMeta(nisn, meta);
+      }
     }
   });
 
@@ -2910,6 +3172,27 @@
       $('#fSiswa').value = '';
       fillSiswaSelect();
       loadView();
+      return;
+    }
+
+    const ijazahSave = e.target.closest('[data-ijazah-save]');
+    if (ijazahSave) {
+      const id = ijazahSave.dataset.ijazahSave;
+      if (!id) return;
+      const meta = collectIjazahPreviewMeta();
+      saveIjazahPreviewMeta(id, meta);
+      showStatus('Data cetak ijazah disimpan.');
+      return;
+    }
+
+    const ijazahPreview = e.target.closest('[data-ijazah-preview]');
+    if (ijazahPreview) {
+      const id = ijazahPreview.dataset.ijazahPreview;
+      if (!id) return;
+      const meta = collectIjazahPreviewMeta();
+      saveIjazahPreviewMeta(id, meta);
+      const url = ijazahPreviewUrl(id, meta, ijazahPreview.dataset.print === '1');
+      window.open(url, '_blank', 'noopener');
       return;
     }
 
@@ -3194,17 +3477,20 @@
     const formBobot = e.target.closest('#formBobotIjazah');
     if (formBobot) {
       e.preventDefault();
-      syncBobotRaporAuto();
-      const praktek = Number($('#bPraktek').value);
-      const teori = Number($('#bTeori').value);
-      if (praktek + teori > 100) {
-        showStatus('Total praktek + teori tidak boleh lebih dari 100%.', true);
+      const mode = $('#bMode')?.value || 'semua';
+      if (mode === 'semua') {
+        syncBobotRaporAuto();
+        const praktek = Number($('#bPraktek').value);
+        const teori = Number($('#bTeori').value);
+        if (praktek + teori > 100) {
+          showStatus('Total praktek + teori tidak boleh lebih dari 100%.', true);
+          return;
+        }
+      } else if (!syncBobotMapelRows()) {
+        showStatus('Periksa bobot per mapel: total praktek + teori tidak boleh lebih dari 100%.', true);
         return;
       }
-      const payload = {
-        praktek,
-        teori,
-      };
+      const payload = collectBobotPayload();
       (async () => {
         try {
           const res = await apiPost('save_ijazah_bobot', payload);

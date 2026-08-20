@@ -572,6 +572,8 @@ try {
         })(),
         'ijazah_bobot' => [
             'bobot' => $service->ijazahService()->getBobot(),
+            'mapel_labels' => UjianStore::MAPEL,
+            'mapel_order' => IjazahService::MAPEL_ORDER,
         ],
         'save_ijazah_bobot' => (function () use ($service, $input) {
             $bobot = $service->ijazahService()->saveBobot($input);

@@ -67,9 +67,11 @@ final class IjazahService
     ];
 
     public const DEFAULT_BOBOT = [
+        'mode' => 'semua',
         'rataan' => 60,
         'praktek' => 20,
         'teori' => 20,
+        'mapel' => [],
     ];
 
     public function __construct(
@@ -97,12 +99,7 @@ final class IjazahService
             if ($row) {
                 $decoded = json_decode((string) $row['setting_value'], true);
                 if (is_array($decoded)) {
-                    foreach (['rataan', 'praktek', 'teori'] as $k) {
-                        if (isset($decoded[$k]) && is_numeric($decoded[$k])) {
-                            $bobot[$k] = (float) $decoded[$k];
-                        }
-                    }
-                    return $bobot;
+                    return $this->normalizeBobot($decoded);
                 }
             }
         } catch (Throwable) {
@@ -112,18 +109,90 @@ final class IjazahService
         if (is_readable($this->settingsPath)) {
             $json = json_decode(file_get_contents($this->settingsPath) ?: '', true);
             if (is_array($json['bobot'] ?? null)) {
-                foreach (['rataan', 'praktek', 'teori'] as $k) {
-                    if (isset($json['bobot'][$k]) && is_numeric($json['bobot'][$k])) {
-                        $bobot[$k] = (float) $json['bobot'][$k];
-                    }
-                }
+                return $this->normalizeBobot($json['bobot']);
             }
         }
         return $bobot;
     }
 
+    /**
+     * @param array<string, mixed> $raw
+     * @return array{mode:string,rataan:float,praktek:float,teori:float,mapel:array<string,array{praktek:float,teori:float,rataan:float}>}
+     */
+    public function normalizeBobot(array $raw): array
+    {
+        $praktek = round((float) ($raw['praktek'] ?? self::DEFAULT_BOBOT['praktek']), 2);
+        $teori = round((float) ($raw['teori'] ?? self::DEFAULT_BOBOT['teori']), 2);
+        $ujian = $praktek + $teori;
+        if ($ujian > 100) {
+            $praktek = self::DEFAULT_BOBOT['praktek'];
+            $teori = self::DEFAULT_BOBOT['teori'];
+            $ujian = $praktek + $teori;
+        }
+        $mode = ($raw['mode'] ?? 'semua') === 'per_mapel' ? 'per_mapel' : 'semua';
+
+        $mapel = [];
+        if (is_array($raw['mapel'] ?? null)) {
+            foreach ($raw['mapel'] as $kode => $row) {
+                if (!is_string($kode) || !is_array($row)) {
+                    continue;
+                }
+                $k = strtoupper(trim($kode));
+                if ($k === '') {
+                    continue;
+                }
+                $p = round((float) ($row['praktek'] ?? $praktek), 2);
+                $t = round((float) ($row['teori'] ?? $teori), 2);
+                if ($p < 0 || $p > 100 || $t < 0 || $t > 100 || $p + $t > 100) {
+                    continue;
+                }
+                $mapel[$k] = [
+                    'praktek' => $p,
+                    'teori' => $t,
+                    'rataan' => round(100 - $p - $t, 2),
+                ];
+            }
+        }
+
+        return [
+            'mode' => $mode,
+            'rataan' => round(100 - $praktek - $teori, 2),
+            'praktek' => $praktek,
+            'teori' => $teori,
+            'mapel' => $mapel,
+        ];
+    }
+
+    /**
+     * Bobot efektif untuk satu mapel (global atau override per mapel).
+     *
+     * @param array{mode?:string,rataan:float,praktek:float,teori:float,mapel?:array<string,array{praktek?:float,teori?:float,rataan?:float}>} $bobot
+     * @return array{rataan:float,praktek:float,teori:float}
+     */
+    public function bobotForMapel(string $kode, array $bobot): array
+    {
+        $k = strtoupper(trim($kode));
+        if (($bobot['mode'] ?? 'semua') === 'per_mapel' && isset($bobot['mapel'][$k]) && is_array($bobot['mapel'][$k])) {
+            $row = $bobot['mapel'][$k];
+            $praktek = round((float) ($row['praktek'] ?? $bobot['praktek']), 2);
+            $teori = round((float) ($row['teori'] ?? $bobot['teori']), 2);
+            return [
+                'rataan' => round(100 - $praktek - $teori, 2),
+                'praktek' => $praktek,
+                'teori' => $teori,
+            ];
+        }
+
+        return [
+            'rataan' => (float) ($bobot['rataan'] ?? self::DEFAULT_BOBOT['rataan']),
+            'praktek' => (float) ($bobot['praktek'] ?? self::DEFAULT_BOBOT['praktek']),
+            'teori' => (float) ($bobot['teori'] ?? self::DEFAULT_BOBOT['teori']),
+        ];
+    }
+
     public function saveBobot(array $input): array
     {
+        $mode = ($input['mode'] ?? 'semua') === 'per_mapel' ? 'per_mapel' : 'semua';
         $praktek = round((float) ($input['praktek'] ?? self::DEFAULT_BOBOT['praktek']), 2);
         $teori = round((float) ($input['teori'] ?? self::DEFAULT_BOBOT['teori']), 2);
         if ($praktek < 0 || $praktek > 100) {
@@ -136,13 +205,43 @@ final class IjazahService
         if ($ujian > 100) {
             throw new InvalidArgumentException('Total bobot praktek + teori tidak boleh lebih dari 100% (sekarang ' . $ujian . '%).');
         }
-        // Persentase rapor dihitung otomatis: sisa dari 100%
-        $rataan = round(100 - $ujian, 2);
-        $bobot = [
-            'rataan' => $rataan,
+
+        $mapelBobot = [];
+        if ($mode === 'per_mapel' && is_array($input['mapel'] ?? null)) {
+            foreach ($input['mapel'] as $kode => $row) {
+                if (!is_string($kode) || !is_array($row)) {
+                    continue;
+                }
+                $k = strtoupper(trim($kode));
+                if ($k === '') {
+                    continue;
+                }
+                $p = round((float) ($row['praktek'] ?? $praktek), 2);
+                $t = round((float) ($row['teori'] ?? $teori), 2);
+                if ($p < 0 || $p > 100) {
+                    throw new InvalidArgumentException("Bobot praktek mapel {$k} harus antara 0–100.");
+                }
+                if ($t < 0 || $t > 100) {
+                    throw new InvalidArgumentException("Bobot teori mapel {$k} harus antara 0–100.");
+                }
+                if ($p + $t > 100) {
+                    throw new InvalidArgumentException("Total praktek + teori mapel {$k} tidak boleh lebih dari 100%.");
+                }
+                $mapelBobot[$k] = [
+                    'praktek' => $p,
+                    'teori' => $t,
+                    'rataan' => round(100 - $p - $t, 2),
+                ];
+            }
+        }
+
+        $bobot = $this->normalizeBobot([
+            'mode' => $mode,
+            'rataan' => round(100 - $ujian, 2),
             'praktek' => $praktek,
             'teori' => $teori,
-        ];
+            'mapel' => $mapelBobot,
+        ]);
 
         $dir = dirname($this->settingsPath);
         if (!is_dir($dir)) {
@@ -180,6 +279,7 @@ final class IjazahService
                 'bobot' => $bobot,
                 'mapel_labels' => UjianStore::MAPEL,
                 'mapel_short' => self::MAPEL_SHORT,
+                'mapel_order' => self::MAPEL_ORDER,
                 'siswa' => $detail,
             ];
         }
@@ -695,7 +795,7 @@ final class IjazahService
             $praktek = $this->findUjianNilai($ujianIndex, 'praktek', $nisn, $kode, $agg['nama']);
             $teori = $this->findUjianNilai($ujianIndex, 'teori', $nisn, $kode, $agg['nama']);
 
-            $ijazah = $this->hitungIjazah($rataan, $praktek, $teori, $bobot);
+            $ijazah = $this->hitungIjazah($rataan, $praktek, $teori, $this->bobotForMapel($kode, $bobot));
             $keterangan = $this->formatKeteranganDiabaikan($agg['diabaikan']);
 
             $rows[] = [
