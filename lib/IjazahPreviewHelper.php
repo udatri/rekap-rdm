@@ -46,7 +46,7 @@ final class IjazahPreviewHelper
         'MTL' => 'Advanced Mathematics',
         'BIDTL' => 'Advanced Indonesian',
         'ABAR' => 'Advanced Arabic',
-        'BARTL' => 'Advanced English',
+        'BARTL' => 'Advanced Arabic',
         'BIGTL' => 'Advanced English',
         'BKOR' => 'Korean Language',
         'BMAND' => 'Mandarin Language',
@@ -70,7 +70,7 @@ final class IjazahPreviewHelper
     /** @var list<string> */
     private const SELECTED_CODES = [
         'INFOP', 'SOS', 'EKO', 'GEO', 'SejL', 'ANT', 'BIO', 'KIM', 'FIS', 'MTL',
-        'BIDTL', 'ABAR', 'BARTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP', 'IHad', 'ITaf', 'UFiq',
+        'BIDTL', 'BARTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP', 'IHad', 'ITaf', 'UFiq',
         'APHP', 'DKV', 'TB',
     ];
 

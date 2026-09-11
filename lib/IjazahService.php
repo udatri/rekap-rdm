@@ -20,7 +20,7 @@ final class IjazahService
         // seterusnya
         'INFOP', 'Jawa', 'Tahfi', 'BTAQ', 'P5', 'KO', 'SOS', 'EKO', 'GEO', 'ANT', 'BIO', 'KIM', 'FIS', 'MTL',
         'BIDTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP',
-        'APHP_DKV_TB', 'DKV', 'APHP', 'ABAR', 'BARTL', 'IHad', 'ITaf', 'UFiq', 'TB', 'SejL', 'riset',
+        'APHP_DKV_TB', 'DKV', 'APHP', 'BARTL', 'IHad', 'ITaf', 'UFiq', 'TB', 'SejL', 'riset',
     ];
 
     /**
@@ -31,6 +31,7 @@ final class IjazahService
         'APHP' => 'APHP_DKV_TB',
         'DKV' => 'APHP_DKV_TB',
         'TB' => 'APHP_DKV_TB',
+        'ABAR' => 'BARTL',
     ];
 
     /** Label kolom singkat di tabel ijazah */
@@ -752,7 +753,11 @@ final class IjazahService
         // Agregasi per mapel dari rapor X–XII (nilai kosong/0 diabaikan)
         $mapelAgg = [];
         foreach ($records as $r) {
-            foreach ($r['scores'] as $kode => $nilai) {
+            foreach ($r['scores'] as $kodeRaw => $nilai) {
+                $kode = UjianStore::canonicalMapel((string) $kodeRaw);
+                if ($kode === '') {
+                    continue;
+                }
                 if (!isset($mapelAgg[$kode])) {
                     $mapelAgg[$kode] = [
                         'kode' => $kode,
@@ -948,16 +953,22 @@ final class IjazahService
                     continue;
                 }
                 $nilai = (float) $s['nilai_akhir'];
+                $canon = UjianStore::canonicalMapel($mapelKode !== '' ? $mapelKode : (string) ($ujian['mapel'] ?? ''));
                 $keys = [];
                 if ($mapelKode !== '') {
                     $keys[] = $jenis . '|' . $nisn . '|' . strtolower($mapelKode);
+                    $keys[] = $jenis . '|' . $nisn . '|' . strtolower($canon);
                 }
                 if ($mapelNama !== '') {
                     $keys[] = $jenis . '|' . $nisn . '|nama:' . $mapelNama;
                 }
                 // Alias dari MAPEL
                 foreach (UjianStore::MAPEL as $kode => $nama) {
-                    if (strtoupper($kode) === $mapelKode || strtolower($nama) === $mapelNama) {
+                    if (strtoupper($kode) === $mapelKode
+                        || strtoupper(UjianStore::canonicalMapel($kode)) === strtoupper($canon)
+                        || strtolower($nama) === $mapelNama
+                    ) {
+                        $keys[] = $jenis . '|' . $nisn . '|' . strtolower(UjianStore::canonicalMapel($kode));
                         $keys[] = $jenis . '|' . $nisn . '|' . strtolower($kode);
                         $keys[] = $jenis . '|' . $nisn . '|nama:' . strtolower($nama);
                     }
@@ -976,10 +987,17 @@ final class IjazahService
     private function findUjianNilai(array $index, string $jenis, string $nisn, string $kode, string $nama): ?float
     {
         $nisn = $this->normalizeNisn($nisn) ?: trim($nisn);
+        $kode = UjianStore::canonicalMapel($kode);
         $candidates = [
             $jenis . '|' . $nisn . '|' . strtolower($kode),
             $jenis . '|' . $nisn . '|nama:' . strtolower($nama),
+            $jenis . '|' . $nisn . '|nama:' . strtolower(UjianStore::MAPEL[$kode] ?? $nama),
         ];
+        foreach (UjianStore::MAPEL_CANONICAL as $alias => $canon) {
+            if (strcasecmp($canon, $kode) === 0) {
+                $candidates[] = $jenis . '|' . $nisn . '|' . strtolower($alias);
+            }
+        }
         foreach ($candidates as $key) {
             if (isset($index[$key])) {
                 return $index[$key];
@@ -996,6 +1014,7 @@ final class IjazahService
             'SEJ_L' => 'SejL',
         ];
         $kode = $aliases[strtoupper($kode)] ?? $kode;
+        $kode = UjianStore::canonicalMapel($kode);
         return UjianStore::MAPEL[$kode] ?? $kode;
     }
 

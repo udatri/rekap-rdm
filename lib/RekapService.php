@@ -914,7 +914,7 @@ final class RekapService
                 continue;
             }
             foreach ($row['scores'] as $kode => $nilai) {
-                $kode = (string) $kode;
+                $kode = UjianStore::canonicalMapel((string) $kode);
                 if ($kode === '') {
                     continue;
                 }
@@ -925,7 +925,7 @@ final class RekapService
                     continue;
                 }
                 $v = round((float) $nilai, 1);
-                // Jika bentrok (duplikat file), ambil nilai lebih tinggi
+                // Jika bentrok (duplikat file / alias mapel), ambil nilai lebih tinggi
                 $prev = $matrix[$kode][$slot];
                 if ($prev === null || $v > $prev) {
                     $matrix[$kode][$slot] = $v;
@@ -936,7 +936,24 @@ final class RekapService
         $ijazah = $this->ijazahService->rekap($data, ['id' => $studentId]);
         $ijazahMap = [];
         foreach ($ijazah['siswa']['mapel'] ?? [] as $m) {
-            $ijazahMap[(string) $m['kode']] = $m;
+            $kode = UjianStore::canonicalMapel((string) $m['kode']);
+            if ($kode === '') {
+                continue;
+            }
+            // Gabung alias (ABAR→BARTL): utamakan nilai yang sudah ada
+            if (!isset($ijazahMap[$kode])) {
+                $ijazahMap[$kode] = $m + ['kode' => $kode];
+                continue;
+            }
+            foreach (['ujian_praktek', 'ujian_teori', 'nilai_ijazah', 'rataan'] as $field) {
+                $cur = $ijazahMap[$kode][$field] ?? null;
+                $inc = $m[$field] ?? null;
+                if ($cur === null && $inc !== null) {
+                    $ijazahMap[$kode][$field] = $inc;
+                } elseif ($cur !== null && $inc !== null && is_numeric($inc) && (float) $inc > (float) $cur) {
+                    $ijazahMap[$kode][$field] = $inc;
+                }
+            }
         }
 
         $kelompokDef = [
@@ -946,7 +963,7 @@ final class RekapService
             ],
             'pilihan' => [
                 'judul' => 'Kelompok Mata Pelajaran Pilihan',
-                'kode' => ['INFOP', 'SOS', 'EKO', 'GEO', 'ANT', 'BIO', 'KIM', 'FIS', 'MTL', 'BIDTL', 'ABAR', 'BARTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP', 'IHad', 'ITaf', 'UFiq', 'SejL'],
+                'kode' => ['INFOP', 'SOS', 'EKO', 'GEO', 'ANT', 'BIO', 'KIM', 'FIS', 'MTL', 'BIDTL', 'BARTL', 'BIGTL', 'BKOR', 'BMAND', 'BJEP', 'IHad', 'ITaf', 'UFiq', 'SejL'],
             ],
             'vokasi' => [
                 'judul' => 'Kelompok Mata Pelajaran Vokasi / Keterampilan',

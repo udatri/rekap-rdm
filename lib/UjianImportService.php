@@ -702,12 +702,12 @@ final class UjianImportService
             return null;
         }
         if (isset(UjianStore::MAPEL[$label])) {
-            return $label;
+            return UjianStore::canonicalMapel($label);
         }
         // case-insensitive kode
         foreach (UjianStore::MAPEL as $kode => $nama) {
             if (strcasecmp($kode, $label) === 0) {
-                return $kode;
+                return UjianStore::canonicalMapel($kode);
             }
         }
         $norm = $this->normalizeName($label);
@@ -716,8 +716,11 @@ final class UjianImportService
         }
         foreach (UjianStore::MAPEL as $kode => $nama) {
             if ($this->normalizeName($nama) === $norm) {
-                return $kode;
+                return UjianStore::canonicalMapel($kode);
             }
+        }
+        if ($norm === 'bahasa arab lanjut' || $norm === 'bahasa arab tingkat lanjut') {
+            return 'BARTL';
         }
         return null;
     }

@@ -61,8 +61,8 @@ final class UjianStore
         'FIS' => 'Fisika',
         'MTL' => 'Matematika Lanjut',
         'BIDTL' => 'Bahasa Indonesia Tingkat Lanjut',
-        'ABAR' => 'Bahasa Arab Lanjut',
-        'BARTL' => 'Bahasa Inggris Lanjut',
+        'ABAR' => 'Bahasa Arab Tingkat Lanjut',
+        'BARTL' => 'Bahasa Arab Tingkat Lanjut',
         'BIGTL' => 'Bahasa Inggris Tingkat Lanjut',
         'BKOR' => 'Bahasa Korea',
         'BMAND' => 'Bahasa Mandarin',
@@ -74,6 +74,40 @@ final class UjianStore
         'TB' => 'Tata Busana',
         'riset' => 'Riset',
     ];
+
+    /**
+     * Alias kode mapel yang digabung ke kode kanonis.
+     * ABAR (Bahasa Arab Lanjut) = BARTL (Bahasa Arab Tingkat Lanjut).
+     *
+     * @var array<string, string>
+     */
+    public const MAPEL_CANONICAL = [
+        'ABAR' => 'BARTL',
+    ];
+
+    public static function canonicalMapel(string $kode): string
+    {
+        $kode = trim($kode);
+        if ($kode === '') {
+            return $kode;
+        }
+        if (isset(self::MAPEL_CANONICAL[$kode])) {
+            return self::MAPEL_CANONICAL[$kode];
+        }
+        $upper = strtoupper($kode);
+        foreach (self::MAPEL_CANONICAL as $from => $to) {
+            if (strcasecmp($from, $kode) === 0) {
+                return $to;
+            }
+        }
+        // Pertahankan casing resmi dari MAPEL jika ada
+        foreach (self::MAPEL as $official => $_) {
+            if (strcasecmp($official, $kode) === 0) {
+                return $official;
+            }
+        }
+        return $kode;
+    }
 
     private ?PDO $pdo = null;
     private bool $useJson = false;
