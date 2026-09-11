@@ -317,6 +317,91 @@ body {
 
 .filters label.grow { min-width: 0; }
 
+.filter-semester {
+  min-width: 0;
+}
+
+.semester-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  min-height: 2.65rem;
+  align-items: center;
+}
+
+.semester-checks-empty {
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.semester-check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8faf9;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.semester-check-item:hover {
+  border-color: #9ec5b4;
+  background: #eef7f2;
+}
+
+.semester-check-item input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  accent-color: var(--accent, #1b6b4f);
+  cursor: pointer;
+}
+
+.semester-check-item:has(input:checked) {
+  border-color: #3d7a64;
+  background: #e8f3ed;
+  color: #0f3d2e;
+}
+
+.semester-checks-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 1.6rem;
+  margin: 0 0.15rem;
+  background: var(--line);
+  flex-shrink: 0;
+}
+
+.ujian-kolom-item {
+  border-color: #c9b896;
+  background: #faf6ef;
+}
+
+.ujian-kolom-item:hover {
+  border-color: #b89a6a;
+  background: #f3ebdc;
+}
+
+.ujian-kolom-item:has(input:checked) {
+  border-color: #9a7b4f;
+  background: #efe4cf;
+  color: #4a3a1f;
+}
+
 .filters select {
   appearance: none;
   width: 100%;
@@ -445,6 +530,11 @@ body {
 }
 
 .ujian-form label.grow { min-width: 0; grid-column: span 2; }
+
+.ujian-form .ujian-semester-filter {
+  grid-column: span 2;
+  min-width: 0;
+}
 
 .ujian-form input:not([type="checkbox"]),
 .ujian-form select {
@@ -1930,6 +2020,12 @@ tbody tr:hover { background: #f3faf6; }
   font-size: 0.86rem;
 }
 
+.hasil-table .hasil-no {
+  width: 2.4rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .hasil-table thead th {
   text-align: center;
   vertical-align: middle;
@@ -1954,6 +2050,10 @@ tbody tr:hover { background: #f3faf6; }
 .hasil-table .hasil-jumlah td {
   background: #efe4d6;
   font-weight: 700;
+}
+
+.hasil-table .hasil-rataan td {
+  background: #e8f0ea;
 }
 
 .hasil-table .hasil-akhir {

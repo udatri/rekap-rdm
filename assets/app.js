@@ -412,10 +412,132 @@
     return `${v.toFixed(i ? 1 : 0)} ${u[i]}`;
   }
 
+  function getSelectedUjianKolom() {
+    const checked = [...document.querySelectorAll('#fSemesterChecks input[type="checkbox"][data-kolom]:checked')]
+      .map((el) => el.dataset.kolom)
+      .filter(Boolean);
+    return checked.length ? checked.join(',') : '';
+  }
+
+  function parseUjianKolom(filterStr) {
+    const raw = String(filterStr || '').trim().toLowerCase();
+    // Tidak dicentang = sembunyikan kolom praktek & teori
+    if (!raw) return { praktek: false, teori: false };
+    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    return {
+      praktek: parts.includes('praktek'),
+      teori: parts.includes('teori'),
+    };
+  }
+
+  function ensureUjianKolomChecks(wrap, prevChecked = null) {
+    if (!wrap || wrap.querySelector('input[data-kolom="praktek"]')) return;
+    const prev = prevChecked instanceof Set
+      ? prevChecked
+      : new Set(
+          [...wrap.querySelectorAll('input[data-kolom]:checked')].map((el) => el.dataset.kolom)
+        );
+    const divider = document.createElement('span');
+    divider.className = 'semester-checks-divider';
+    divider.setAttribute('aria-hidden', 'true');
+    wrap.appendChild(divider);
+    [
+      { key: 'praktek', label: 'Praktek', title: 'Nilai ujian praktek' },
+      { key: 'teori', label: 'Teori', title: 'Nilai ujian teori' },
+    ].forEach(({ key, label, title }) => {
+      const labelEl = document.createElement('label');
+      labelEl.className = 'semester-check-item ujian-kolom-item';
+      labelEl.title = title;
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.dataset.kolom = key;
+      input.value = key;
+      input.checked = prev.has(key);
+      const span = document.createElement('span');
+      span.textContent = label;
+      labelEl.appendChild(input);
+      labelEl.appendChild(span);
+      wrap.appendChild(labelEl);
+    });
+  }
+
+  function getSelectedSemesterKe(containerId = 'fSemesterChecks') {
+    const id = containerId.startsWith('#') ? containerId.slice(1) : containerId;
+    return [...document.querySelectorAll(`#${id} input[type="checkbox"][data-ke]:checked`)]
+      .map((el) => el.dataset.ke)
+      .join(',');
+  }
+
+  function fillSemesterChecks(containerId, items, inheritFrom = null) {
+    const wrap = $(containerId.startsWith('#') ? containerId : `#${containerId}`);
+    if (!wrap) return;
+    const inheritId = inheritFrom
+      ? (inheritFrom.startsWith('#') ? inheritFrom.slice(1) : inheritFrom)
+      : null;
+    const prev = inheritId
+      ? new Set(getSelectedSemesterKe(inheritId).split(',').filter(Boolean))
+      : new Set(getSelectedSemesterKe(containerId).split(',').filter(Boolean));
+    const prevUjian = new Set(
+      [...wrap.querySelectorAll('input[data-kolom]:checked')].map((el) => el.dataset.kolom).filter(Boolean)
+    );
+    wrap.innerHTML = '';
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+      wrap.innerHTML = '<span class="muted semester-checks-empty">Belum ada data semester</span>';
+      ensureUjianKolomChecks(wrap, prevUjian);
+      return;
+    }
+    list.forEach((item) => {
+      const ke = String(item.ke ?? item.semester_ke ?? '');
+      if (!ke) return;
+      const label = document.createElement('label');
+      label.className = 'semester-check-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.dataset.ke = ke;
+      input.value = ke;
+      input.checked = prev.has(ke);
+      const span = document.createElement('span');
+      span.textContent = `S${ke}`;
+      label.appendChild(input);
+      label.appendChild(span);
+      wrap.appendChild(label);
+    });
+    ensureUjianKolomChecks(wrap, prevUjian);
+  }
+
+  function resetSemesterChecks(containerId = 'fSemesterChecks') {
+    const id = containerId.startsWith('#') ? containerId.slice(1) : containerId;
+    document.querySelectorAll(`#${id} input[data-ke], #${id} input[data-kolom]`).forEach((el) => {
+      el.checked = false;
+    });
+  }
+
+  function semesterFilterMeta(containerId = 'fSemesterChecks') {
+    const semester_ke = getSelectedSemesterKe(containerId);
+    if (!semester_ke) {
+      return { semester_ke: '', semester: '' };
+    }
+    const items = state.filters?.semester_ke || [];
+    const selected = semester_ke.split(',').filter(Boolean);
+    const semNames = selected.map((ke) => {
+      const item = items.find((x) => String(x.ke) === String(ke));
+      return item?.semester || '';
+    }).filter(Boolean);
+    const uniqueSem = [...new Set(semNames)];
+    return {
+      semester_ke,
+      semester: uniqueSem.length === 1
+        ? uniqueSem[0]
+        : selected.map((ke) => `S${ke}`).join(', '),
+    };
+  }
+
   function currentFilters() {
     return {
       tahun_ajaran: $('#fTahun').value,
-      semester: $('#fSemester').value,
+      semester_ke: getSelectedSemesterKe('fSemesterChecks'),
+      ujian_kolom: getSelectedUjianKolom(),
       kelas: $('#fKelas').value,
       id: $('#fSiswa').value,
     };
@@ -564,6 +686,7 @@
       : '';
 
     fillSelect($('#fTahun'), data.tahun_ajaran, 'Semua', (v) => ({ value: v, label: v }));
+    fillSemesterChecks('fSemesterChecks', data.semester_ke || []);
     fillKelasSelect(data.kelas || []);
     fillSiswaSelect();
   }
@@ -783,11 +906,27 @@
       const p = new URLSearchParams();
       const f = currentFilters();
       if (f.tahun_ajaran) p.set('tahun_ajaran', f.tahun_ajaran);
-      if (f.semester) p.set('semester', f.semester);
+      if (f.semester_ke) p.set('semester_ke', f.semester_ke);
       if (f.kelas) p.set('kelas', f.kelas);
       if (f.id) p.set('id', f.id);
       btnExport.href = `unduh_rekap_semua_semester.php?${p.toString()}`;
     }
+  }
+
+  function previewRekapQuery(s, filters = null) {
+    const p = new URLSearchParams({ id: String(s.nisn || s.id || '') });
+    const f = filters || currentFilters();
+    if (f.tahun_ajaran) p.set('tahun_ajaran', f.tahun_ajaran);
+    if (f.semester_ke) p.set('semester_ke', f.semester_ke);
+    if (f.ujian_kolom) p.set('ujian_kolom', f.ujian_kolom);
+    if (f.kelas) p.set('kelas', f.kelas);
+    return p.toString();
+  }
+
+  function openPreviewRekap(s, print = false, filters = null) {
+    const qs = previewRekapQuery(s, filters);
+    const url = `preview_rekap_siswa.php?${qs}${print ? '&print=1' : ''}`;
+    window.open(url, '_blank', 'noopener');
   }
 
   function renderPerSiswa(data) {
@@ -816,8 +955,24 @@
         maximumFractionDigits: 1,
       });
     };
+    const fmtJumlah = (v) => {
+      if (v == null || Number.isNaN(Number(v))) return '';
+      return Number(v).toLocaleString('id-ID', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      });
+    };
 
     const slots = ['x_ganjil', 'x_genap', 'xi_ganjil', 'xi_genap', 'xii_ganjil', 'xii_genap'];
+    const slotShort = { x_ganjil: 'S1', x_genap: 'S2', xi_ganjil: 'S3', xi_genap: 'S4', xii_ganjil: 'S5', xii_genap: 'S6' };
+    const slotMap = { 1: 'x_ganjil', 2: 'x_genap', 3: 'xi_ganjil', 4: 'xi_genap', 5: 'xii_ganjil', 6: 'xii_genap' };
+    const semFilter = String(hb?.semester_ke_filter || data.filters?.semester_ke || '').trim();
+    const visibleSlots = semFilter
+      ? semFilter.split(',').map((ke) => slotMap[Number(ke.trim())]).filter(Boolean)
+      : slots;
+    const ujianKolomRaw = String(data.filters?.ujian_kolom || currentFilters().ujian_kolom || '').trim();
+    const ujianKolom = parseUjianKolom(ujianKolomRaw);
+    const tableCols = 2 + visibleSlots.length + 1 + (ujianKolom.praktek ? 1 : 0) + (ujianKolom.teori ? 1 : 0) + 1;
     const slotTingkat = {
       x_ganjil: 'X', x_genap: 'X',
       xi_ganjil: 'XI', xi_genap: 'XI',
@@ -826,6 +981,7 @@
     const paiCodes = new Set(['QH', 'AA', 'FIK', 'SKI']);
     const kktpMap = kktpNilaiMap(data);
 
+    let mapelNo = 0;
     const hasilRows = (hb?.kelompok || []).map((g) => {
       const pai = [];
       const other = [];
@@ -834,32 +990,39 @@
         else other.push(r);
       });
       const renderRow = (r) => {
-        const vals = slots.map((k) => excelScoreCell(r.nilai?.[k], slotTingkat[k], kktpMap, 1)).join('');
+        mapelNo += 1;
+        const vals = visibleSlots.map((k) => excelScoreCell(r.nilai?.[k], slotTingkat[k], kktpMap, 1)).join('');
         const hasTeori = r.has_teori === true || (r.ujian != null && r.ujian !== '');
         const akhirTone = hasTeori ? 'hasil-akhir hasil-akhir-teori' : 'hasil-akhir hasil-akhir-pending';
         const akhirTitle = hasTeori
           ? 'Nilai akhir (ujian teori sudah ada)'
           : 'Nilai akhir sementara — ujian teori belum ada';
         const tingkatRataan = parseTingkatKelas(hb.kelas_akhir || s.kelas_akhir || s.kelas_list?.[s.kelas_list.length - 1] || '') || 'XII';
+        const praktekCell = ujianKolom.praktek
+          ? `<td class="num">${esc(fmtCell(r.ujian_praktek))}</td>`
+          : '';
+        const teoriCell = ujianKolom.teori
+          ? `<td class="num">${esc(fmtCell(r.ujian))}</td>`
+          : '';
         return `<tr>
+          <td class="num hasil-no">${mapelNo}</td>
           <td>${esc(r.nama)}</td>
           ${vals}
           ${excelScoreCell(r.rataan, tingkatRataan, kktpMap, 1, { asRata: true, strong: true })}
-          <td class="num">${esc(fmtCell(r.ujian_praktek))}</td>
-          <td class="num">${esc(fmtCell(r.ujian))}</td>
+          ${praktekCell}
+          ${teoriCell}
           <td class="num ${akhirTone}" title="${akhirTitle}"><strong>${esc(r.nilai_akhir == null || Number.isNaN(Number(r.nilai_akhir)) ? '—' : fmt(r.nilai_akhir, 0))}</strong></td>
         </tr>`;
       };
-      let body = `<tr class="hasil-group"><td colspan="11">${esc(g.judul)}</td></tr>`;
+      let body = `<tr class="hasil-group"><td colspan="${tableCols}">${esc(g.judul)}</td></tr>`;
       if (pai.length) {
-        body += `<tr class="hasil-sub"><td colspan="11">Pendidikan Agama Islam dan Budi Pekerti</td></tr>`;
+        body += `<tr class="hasil-sub"><td colspan="${tableCols}">Pendidikan Agama Islam dan Budi Pekerti</td></tr>`;
         body += pai.map(renderRow).join('');
       }
       body += other.map(renderRow).join('');
       return body;
     }).join('');
 
-    const previewId = encodeURIComponent(s.nisn || s.id);
     const hasilHtml = hb ? `
       <section class="panel hasil-belajar-panel">
         <div class="panel-head">
@@ -868,8 +1031,8 @@
             <p>Rata-rata rapor + nilai ujian praktek + nilai ujian → nilai akhir (bobot ijazah).</p>
           </div>
           <div class="panel-actions">
-            <a class="btn primary" href="preview_rekap_siswa.php?id=${previewId}" target="_blank" rel="noopener">Buka preview cetak</a>
-            <a class="btn ghost" href="preview_rekap_siswa.php?id=${previewId}&print=1" target="_blank" rel="noopener">Cetak / PDF</a>
+            <button type="button" class="btn primary" data-preview-rekap data-print="0" data-siswa-id="${esc(s.nisn || s.id)}">Buka preview cetak</button>
+            <button type="button" class="btn ghost" data-preview-rekap data-print="1" data-siswa-id="${esc(s.nisn || s.id)}">Cetak / PDF</button>
           </div>
         </div>
         <div class="hasil-identitas">
@@ -881,36 +1044,59 @@
         <div class="table-wrap table-wrap-hasil">
           <table class="hasil-table">
             <thead>
+              ${semFilter ? `
               <tr>
+                <th rowspan="2" class="hasil-no">No</th>
+                <th rowspan="2">Mata Pelajaran</th>
+                ${visibleSlots.map((slot) => `<th rowspan="2">${esc(slotShort[slot] || slot)}</th>`).join('')}
+                <th rowspan="2">Rata-rata</th>
+                ${ujianKolom.praktek ? '<th rowspan="2">Nilai Ujian Praktek</th>' : ''}
+                ${ujianKolom.teori ? '<th rowspan="2">Nilai Ujian</th>' : ''}
+                <th rowspan="2">Nilai Akhir</th>
+              </tr>` : `
+              <tr>
+                <th rowspan="2" class="hasil-no">No</th>
                 <th rowspan="2">Mata Pelajaran</th>
                 <th colspan="2">X</th>
                 <th colspan="2">XI</th>
                 <th colspan="2">XII</th>
                 <th rowspan="2">Rata-rata</th>
-                <th rowspan="2">Nilai Ujian Praktek</th>
-                <th rowspan="2">Nilai Ujian</th>
+                ${ujianKolom.praktek ? '<th rowspan="2">Nilai Ujian Praktek</th>' : ''}
+                ${ujianKolom.teori ? '<th rowspan="2">Nilai Ujian</th>' : ''}
                 <th rowspan="2">Nilai Akhir</th>
               </tr>
               <tr>
                 <th>Ganjil</th><th>Genap</th>
                 <th>Ganjil</th><th>Genap</th>
                 <th>Ganjil</th><th>Genap</th>
-              </tr>
+              </tr>`}
             </thead>
             <tbody>
               ${hasilRows}
               <tr class="hasil-jumlah">
-                <td colspan="7" class="num">Jumlah</td>
-                <td class="num"><strong>${esc(fmtCell(hb.jumlah_rataan))}</strong></td>
-                <td></td><td></td>
-                <td class="num hasil-akhir"><strong>${esc(fmtCell(hb.jumlah_akhir))}</strong></td>
+                <td></td>
+                <td class="num">Jumlah</td>
+                ${visibleSlots.map((slot) => `<td class="num"><strong>${esc(fmtJumlah(hb.jumlah_slot?.[slot]))}</strong></td>`).join('')}
+                <td class="num"><strong>${esc(fmtJumlah(hb.jumlah_rataan))}</strong></td>
+                ${ujianKolom.praktek ? '<td></td>' : ''}
+                ${ujianKolom.teori ? '<td></td>' : ''}
+                <td class="num hasil-akhir"><strong>${esc(fmtJumlah(hb.jumlah_akhir))}</strong></td>
+              </tr>
+              <tr class="hasil-jumlah hasil-rataan">
+                <td></td>
+                <td class="num">Rataan</td>
+                ${visibleSlots.map((slot) => `<td class="num"><strong>${esc(fmtCell(hb.rataan_slot?.[slot]))}</strong></td>`).join('')}
+                <td class="num"><strong>${esc(fmtCell(hb.rataan_rataan))}</strong></td>
+                ${ujianKolom.praktek ? '<td></td>' : ''}
+                ${ujianKolom.teori ? '<td></td>' : ''}
+                <td class="num hasil-akhir"><strong>${esc(fmtCell(hb.rataan_akhir))}</strong></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="muted" style="margin:0.65rem 0 0">
+        ${ujianKolom.teori ? `<p class="muted" style="margin:0.65rem 0 0">
           Bobot nilai akhir: rapor ${esc(hb.bobot?.rataan ?? 60)}% · praktek ${esc(hb.bobot?.praktek ?? 20)}% · ujian ${esc(hb.bobot?.teori ?? 20)}%.
-        </p>
+        </p>` : ''}
       </section>` : '';
 
     const semPanels = s.semesters.map((sem) => {
@@ -1187,13 +1373,9 @@
               ${tahunOpts}
             </select>
           </label>
-          <label>
+          <label class="filter-semester ujian-semester-filter">
             <span>Semester</span>
-            <select id="uSemester">
-              <option value="">—</option>
-              <option value="Ganjil">Ganjil</option>
-              <option value="Genap">Genap</option>
-            </select>
+            <div class="semester-checks" id="uSemesterChecks" role="group" aria-label="Pilih semester ujian"></div>
           </label>
           <label>
             <span>Tanggal</span>
@@ -1265,7 +1447,7 @@
       $('#uKelas').value = preKelas;
     }
     if (f.tahun_ajaran) $('#uTahun').value = f.tahun_ajaran;
-    if (f.semester) $('#uSemester').value = f.semester;
+    fillSemesterChecks('uSemesterChecks', state.filters?.semester_ke || [], 'fSemesterChecks');
 
     const selectedMapel = () =>
       [...document.querySelectorAll('#uMapelList input[type="checkbox"][data-kode]:checked')]
@@ -1274,11 +1456,13 @@
     const syncTemplateLinks = () => {
       const kelas = $('#uKelas')?.value || '';
       const codes = selectedMapel();
+      const semMeta = semesterFilterMeta('uSemesterChecks');
       const p = new URLSearchParams({
         jenis,
         kelas,
         tahun_ajaran: $('#uTahun')?.value || '',
-        semester: $('#uSemester')?.value || '',
+        semester: semMeta.semester,
+        semester_ke: semMeta.semester_ke,
         tanggal: $('#uTanggal')?.value || '',
         keterangan: $('#uKet')?.value || '',
       });
@@ -1294,7 +1478,8 @@
           blank: '1',
           kelas,
           tahun_ajaran: $('#uTahun')?.value || '',
-          semester: $('#uSemester')?.value || '',
+          semester: semMeta.semester,
+          semester_ke: semMeta.semester_ke,
           tanggal: $('#uTanggal')?.value || '',
           mapel: codes[0] || '',
         }).toString()}`;
@@ -1342,10 +1527,12 @@
         return;
       }
       try {
+        const semMeta = semesterFilterMeta('uSemesterChecks');
         const res = await api('mapel_kelas', {
           kelas,
           tahun_ajaran: $('#uTahun')?.value || '',
-          semester: $('#uSemester')?.value || '',
+          semester: semMeta.semester,
+          semester_ke: semMeta.semester_ke,
         });
         const items = res.mapel || [];
         // Ujian teori: otomatis centang semua mapel rapor kelas
@@ -1369,10 +1556,14 @@
       syncTemplateLinks();
     });
 
-    ['uKelas', 'uTahun', 'uSemester'].forEach((id) => {
+    ['uKelas', 'uTahun'].forEach((id) => {
       $(`#${id}`)?.addEventListener('change', () => {
         loadMapelForKelas();
       });
+    });
+    $('#uSemesterChecks')?.addEventListener('change', (e) => {
+      if (!e.target?.matches('input[data-ke]')) return;
+      loadMapelForKelas();
     });
     ['uTanggal', 'uKet'].forEach((id) => {
       const el = $(`#${id}`);
@@ -1930,7 +2121,7 @@
       const f = currentFilters();
       if (f.kelas) p.set('kelas', f.kelas);
       if (f.tahun_ajaran) p.set('tahun_ajaran', f.tahun_ajaran);
-      if (f.semester) p.set('semester', f.semester);
+      if (f.semester_ke) p.set('semester_ke', f.semester_ke);
       btnExport.href = `unduh_nilai_ijazah.php?${p.toString()}`;
     }
     toggleBobotMode();
@@ -2965,9 +3156,10 @@
   }
 
   $('#btnReset').addEventListener('click', () => {
-    ['fTahun', 'fSemester', 'fKelas', 'fSiswa'].forEach((id) => {
-      $(`#${id}`).value = '';
-    });
+    $('#fTahun').value = '';
+    resetSemesterChecks();
+    $('#fKelas').value = '';
+    $('#fSiswa').value = '';
     fillSiswaSelect();
     clearApiCache();
     loadView();
@@ -3064,6 +3256,15 @@
   });
 
   view.addEventListener('click', (e) => {
+    const previewBtn = e.target.closest('[data-preview-rekap]');
+    if (previewBtn) {
+      e.preventDefault();
+      const id = previewBtn.dataset.siswaId || '';
+      if (!id) return;
+      openPreviewRekap({ id, nisn: id }, previewBtn.dataset.print === '1');
+      return;
+    }
+
     const sortBtnEl = e.target.closest('.sort-btn');
     if (sortBtnEl) {
       e.preventDefault();
@@ -3450,12 +3651,14 @@
         return;
       }
       const jenis = formImportUjian.dataset.jenis || ujianJenisFromMode();
+      const semMeta = semesterFilterMeta('uSemesterChecks');
       const fd = new FormData();
       fd.append('action', 'import_ujian_excel');
       fd.append('jenis', jenis);
       fd.append('kelas', $('#uKelas')?.value || '');
       fd.append('tahun_ajaran', $('#uTahun')?.value || '');
-      fd.append('semester', $('#uSemester')?.value || '');
+      fd.append('semester', semMeta.semester);
+      fd.append('semester_ke', semMeta.semester_ke);
       fd.append('tanggal', $('#uTanggal')?.value || '');
       fd.append('keterangan', $('#uKet')?.value || '');
       fd.append('file', input.files[0]);
@@ -3695,8 +3898,12 @@
   const filterPanel = $('#filterPanel');
   if (filterPanel) {
     filterPanel.addEventListener('change', (e) => {
+      if (e.target?.matches('#fSemesterChecks input[data-ke], #fSemesterChecks input[data-kolom]')) {
+        onFilterDropdownChange('fSemester');
+        return;
+      }
       const id = e.target?.id;
-      if (!id || !['fTahun', 'fSemester', 'fKelas', 'fSiswa'].includes(id)) return;
+      if (!id || !['fTahun', 'fKelas', 'fSiswa'].includes(id)) return;
       onFilterDropdownChange(id);
     });
   }

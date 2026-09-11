@@ -210,10 +210,11 @@ try {
     $q = [
         'tahun_ajaran' => $_GET['tahun_ajaran'] ?? ($input['tahun_ajaran'] ?? ''),
         'semester' => $_GET['semester'] ?? ($input['semester'] ?? ''),
-        'semester_ke' => $_GET['semester_ke'] ?? '',
+        'semester_ke' => $_GET['semester_ke'] ?? ($input['semester_ke'] ?? ''),
         'kelas' => $_GET['kelas'] ?? ($input['kelas'] ?? ''),
         'id' => $_GET['id'] ?? ($input['id'] ?? ''),
         'jenis' => $_GET['jenis'] ?? ($input['jenis'] ?? ''),
+        'ujian_kolom' => $_GET['ujian_kolom'] ?? ($input['ujian_kolom'] ?? ''),
     ];
 
     $payload = match ($action) {
@@ -543,7 +544,8 @@ try {
                     $data,
                     $kelas,
                     (string) ($q['tahun_ajaran'] ?? ''),
-                    (string) ($q['semester'] ?? '')
+                    (string) ($q['semester'] ?? ''),
+                    (string) ($q['semester_ke'] ?? '')
                 )
                 : array_keys(UjianStore::MAPEL);
             $items = [];

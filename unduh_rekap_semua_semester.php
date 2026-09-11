@@ -26,6 +26,7 @@ try {
     $filter = [
         'tahun_ajaran' => trim((string) ($_GET['tahun_ajaran'] ?? '')),
         'semester' => trim((string) ($_GET['semester'] ?? '')),
+        'semester_ke' => trim((string) ($_GET['semester_ke'] ?? '')),
         'kelas' => trim((string) ($_GET['kelas'] ?? '')),
         'id' => trim((string) ($_GET['id'] ?? '')),
     ];

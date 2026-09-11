@@ -17,7 +17,7 @@ $csrf = Security::csrfToken();
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/style.css?v=20260820b" />
+  <link rel="stylesheet" href="assets/style.css?v=20260911e" />
 </head>
 <body>
   <div class="app">
@@ -74,13 +74,11 @@ $csrf = Security::csrfToken();
           <option value="">Semua</option>
         </select>
       </label>
-      <label>
-        <span>Semester</span>
-        <select id="fSemester">
-          <option value="">Semua</option>
-          <option value="Ganjil">Ganjil</option>
-          <option value="Genap">Genap</option>
-        </select>
+      <label class="filter-semester">
+        <span>Semester &amp; Ujian</span>
+        <div class="semester-checks" id="fSemesterChecks" role="group" aria-label="Pilih semester dan kolom ujian">
+          <span class="muted semester-checks-empty">Memuat…</span>
+        </div>
       </label>
       <label>
         <span>Kelas</span>
@@ -139,7 +137,7 @@ $csrf = Security::csrfToken();
           <section>
             <h3>2. Filter &amp; pencarian</h3>
             <ul>
-              <li>Pilih <strong>tahun ajaran</strong>, <strong>semester</strong>, atau <strong>kelas/tingkat</strong> — data langsung ditampilkan tanpa tombol tambahan.</li>
+              <li>Pilih <strong>tahun ajaran</strong>, centang <strong>semester (S1–S6)</strong>, atau <strong>kelas/tingkat</strong> — data langsung ditampilkan tanpa tombol tambahan.</li>
               <li>Gunakan tombol <strong>Cari siswa</strong> untuk mencari nama / NISN / NIS, lalu langsung buka rekap per siswa.</li>
             </ul>
           </section>
@@ -185,6 +183,6 @@ $csrf = Security::csrfToken();
       <p>Sumber data: folder <code>semua/</code> · Filter: tahun ajaran, semester, kelas, ID siswa</p>
     </footer>
   </div>
-  <script src="assets/app.js?v=20260820b" defer></script>
+  <script src="assets/app.js?v=20260911j" defer></script>
 </body>
 </html>

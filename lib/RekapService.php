@@ -855,7 +855,7 @@ final class RekapService
                 'rata_rata_semua' => $nRata > 0 ? round($sumRata / $nRata, 1) : null,
                 'semesters' => $semDetail,
                 'subject_trend' => $subjectTrend,
-                'hasil_belajar' => $this->buildHasilBelajar($data, $studentId, $last),
+                'hasil_belajar' => $this->buildHasilBelajar($data, $studentId, $last, $q),
             ],
         ];
     }
@@ -868,9 +868,9 @@ final class RekapService
      *   bobot:array,kelompok:list,jumlah_rataan:?float,jumlah_akhir:?float
      * }
      */
-    private function buildHasilBelajar(array $data, string $studentId, array $last): array
+    private function buildHasilBelajar(array $data, string $studentId, array $last, array $q = []): array
     {
-        // Semua jejak siswa (tanpa filter tahun/semester) untuk matriks X–XII
+        // Semua jejak siswa; terapkan filter tahun/semester/kelas bila dipilih
         $allRows = array_values(array_filter(
             $data['records'],
             static fn ($r) => (string) $r['id'] === $studentId
@@ -887,7 +887,11 @@ final class RekapService
                 }
             ));
         }
+        $allRows = $this->filterRecords($allRows, array_diff_key($q, ['id' => true]));
         usort($allRows, static fn ($a, $b) => $a['semester_ke'] <=> $b['semester_ke']);
+
+        $allowedSlots = self::allowedHasilBelajarSlots((string) ($q['semester_ke'] ?? ''));
+        $hasSemesterFilter = trim((string) ($q['semester_ke'] ?? '')) !== '';
 
         $slots = ['x_ganjil', 'x_genap', 'xi_ganjil', 'xi_genap', 'xii_ganjil', 'xii_genap'];
         $matrix = []; // kode => slot => nilai
@@ -904,6 +908,9 @@ final class RekapService
             }
             $slot = $this->hasilBelajarSlot($tingkat, (string) ($row['semester'] ?? ''), (int) ($row['semester_ke'] ?? 0));
             if ($slot === null) {
+                continue;
+            }
+            if ($allowedSlots !== null && !in_array($slot, $allowedSlots, true)) {
                 continue;
             }
             foreach ($row['scores'] as $kode => $nilai) {
@@ -953,6 +960,8 @@ final class RekapService
         $nRataan = 0;
         $sumAkhir = 0.0;
         $nAkhir = 0;
+        $sumSlot = array_fill_keys($slots, 0.0);
+        $nSlot = array_fill_keys($slots, 0);
 
         foreach ($kelompokDef as $def) {
             $rowsOut = [];
@@ -963,8 +972,18 @@ final class RekapService
                     continue;
                 }
                 $nilai = $hasMatrix ? $matrix[$kode] : array_fill_keys($slots, null);
+                if ($allowedSlots !== null) {
+                    $masked = array_fill_keys($slots, null);
+                    foreach ($allowedSlots as $slot) {
+                        $masked[$slot] = $nilai[$slot] ?? null;
+                    }
+                    $nilai = $masked;
+                }
                 $vals = array_values(array_filter($nilai, static fn ($v) => $v !== null));
-                $rataan = $vals !== [] ? round(array_sum($vals) / count($vals), 1) : ($ijazahMap[$kode]['rataan'] ?? null);
+                $rataan = $vals !== [] ? round(array_sum($vals) / count($vals), 1) : null;
+                if ($rataan === null && !$hasSemesterFilter) {
+                    $rataan = $ijazahMap[$kode]['rataan'] ?? null;
+                }
                 if ($rataan !== null && is_numeric($rataan)) {
                     $rataan = round((float) $rataan, 1);
                 }
@@ -976,6 +995,14 @@ final class RekapService
                     continue;
                 }
                 $used[$kode] = true;
+
+                foreach ($slots as $slot) {
+                    $v = $nilai[$slot] ?? null;
+                    if ($v !== null && is_numeric($v)) {
+                        $sumSlot[$slot] += (float) $v;
+                        $nSlot[$slot]++;
+                    }
+                }
 
                 if ($rataan !== null) {
                     $sumRataan += (float) $rataan;
@@ -1007,9 +1034,17 @@ final class RekapService
 
         // Mapel lain yang tidak masuk definisi di atas
         $lain = [];
-        foreach ($matrix as $kode => $nilai) {
+        foreach ($matrix as $kode => $nilaiRaw) {
             if (isset($used[$kode])) {
                 continue;
+            }
+            $nilai = $nilaiRaw;
+            if ($allowedSlots !== null) {
+                $masked = array_fill_keys($slots, null);
+                foreach ($allowedSlots as $slot) {
+                    $masked[$slot] = $nilaiRaw[$slot] ?? null;
+                }
+                $nilai = $masked;
             }
             $vals = array_values(array_filter($nilai, static fn ($v) => $v !== null));
             if ($vals === []) {
@@ -1019,6 +1054,13 @@ final class RekapService
             $praktek = $ijazahMap[$kode]['ujian_praktek'] ?? null;
             $teori = $ijazahMap[$kode]['ujian_teori'] ?? null;
             $akhir = $ijazahMap[$kode]['nilai_ijazah'] ?? $rataan;
+            foreach ($slots as $slot) {
+                $v = $nilai[$slot] ?? null;
+                if ($v !== null && is_numeric($v)) {
+                    $sumSlot[$slot] += (float) $v;
+                    $nSlot[$slot]++;
+                }
+            }
             if ($rataan !== null) {
                 $sumRataan += $rataan;
                 $nRataan++;
@@ -1053,6 +1095,18 @@ final class RekapService
             }
         }
 
+        $jumlahSlot = [];
+        $rataanSlot = [];
+        foreach ($slots as $slot) {
+            if ($nSlot[$slot] > 0) {
+                $jumlahSlot[$slot] = round($sumSlot[$slot], 1);
+                $rataanSlot[$slot] = round($sumSlot[$slot] / $nSlot[$slot], 1);
+            } else {
+                $jumlahSlot[$slot] = null;
+                $rataanSlot[$slot] = null;
+            }
+        }
+
         return [
             'madrasah' => (string) ($this->sekolahStore->active()['nama']
                 ?: Config::get('madrasah', 'MAN 4 Sleman')),
@@ -1065,9 +1119,15 @@ final class RekapService
             'kelas_akhir' => (string) ($last['kelas'] ?? ''),
             'bobot' => $this->ijazahService->getBobot(),
             'slots' => $slots,
+            'allowed_slots' => $allowedSlots ?? $slots,
+            'semester_ke_filter' => trim((string) ($q['semester_ke'] ?? '')),
             'kelompok' => $kelompok,
+            'jumlah_slot' => $jumlahSlot,
+            'rataan_slot' => $rataanSlot,
             'jumlah_rataan' => $nRataan > 0 ? round($sumRataan, 1) : null,
+            'rataan_rataan' => $nRataan > 0 ? round($sumRataan / $nRataan, 1) : null,
             'jumlah_akhir' => $nAkhir > 0 ? round($sumAkhir, 1) : null,
+            'rataan_akhir' => $nAkhir > 0 ? round($sumAkhir / $nAkhir, 1) : null,
         ];
     }
 
@@ -1087,6 +1147,32 @@ final class RekapService
             'XII' => 'xii_' . $half,
             default => null,
         };
+    }
+
+    /** @return list<string>|null Daftar slot kolom hasil belajar; null = semua semester. */
+    public static function allowedHasilBelajarSlots(string $semesterKeFilter): ?array
+    {
+        $semesterKeFilter = trim($semesterKeFilter);
+        if ($semesterKeFilter === '') {
+            return null;
+        }
+        $map = [
+            1 => 'x_ganjil',
+            2 => 'x_genap',
+            3 => 'xi_ganjil',
+            4 => 'xi_genap',
+            5 => 'xii_ganjil',
+            6 => 'xii_genap',
+        ];
+        $allowed = [];
+        foreach (explode(',', $semesterKeFilter) as $part) {
+            $ke = (int) trim($part);
+            if (isset($map[$ke])) {
+                $allowed[] = $map[$ke];
+            }
+        }
+
+        return $allowed !== [] ? $allowed : null;
     }
 
     /**
@@ -1165,7 +1251,7 @@ final class RekapService
             if ($semester !== '' && (string) $r['semester'] !== $semester) {
                 return false;
             }
-            if ($semesterKe !== '' && (string) $r['semester_ke'] !== $semesterKe) {
+            if ($semesterKe !== '' && !RekapService::matchSemesterKeFilter((string) ($r['semester_ke'] ?? ''), $semesterKe)) {
                 return false;
             }
             if ($kelas !== '' && !$this->matchKelasFilter((string) $r['kelas'], $kelas)) {
@@ -1183,6 +1269,22 @@ final class RekapService
             }
             return true;
         }));
+    }
+
+    /** Cocokkan filter semester_ke: satu nilai atau daftar dipisah koma (mis. "1,3,5"). */
+    public static function matchSemesterKeFilter(string $rowKe, string $filter): bool
+    {
+        $filter = trim($filter);
+        if ($filter === '') {
+            return true;
+        }
+        if (str_contains($filter, ',')) {
+            $allowed = array_map('trim', explode(',', $filter));
+
+            return in_array($rowKe, $allowed, true);
+        }
+
+        return $rowKe === $filter;
     }
 
     /**

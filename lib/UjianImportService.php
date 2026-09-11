@@ -22,8 +22,13 @@ final class UjianImportService
      *
      * @return list<string>
      */
-    public function mapelForKelas(array $data, string $kelas, string $tahunAjaran = '', string $semester = ''): array
-    {
+    public function mapelForKelas(
+        array $data,
+        string $kelas,
+        string $tahunAjaran = '',
+        string $semester = '',
+        string $semesterKe = ''
+    ): array {
         $kelas = trim($kelas);
         $codes = [];
         foreach ($data['records'] ?? [] as $row) {
@@ -43,6 +48,9 @@ final class UjianImportService
                 continue;
             }
             if ($semester !== '' && strcasecmp((string) ($row['semester'] ?? ''), $semester) !== 0) {
+                continue;
+            }
+            if ($semesterKe !== '' && !RekapService::matchSemesterKeFilter((string) ($row['semester_ke'] ?? ''), $semesterKe)) {
                 continue;
             }
             foreach ($row['scores'] ?? [] as $kode => $nilai) {
@@ -95,7 +103,13 @@ final class UjianImportService
         // Map NISN → set kode mapel yang ada nilainya di rapor (untuk highlight teori)
         $raporMapelByNisn = [];
         if ($jenis === UjianStore::JENIS_TEORI && is_array($data)) {
-            $raporMapelByNisn = $this->buildRaporMapelIndex($data, $kelas, $tahun, $semester);
+            $raporMapelByNisn = $this->buildRaporMapelIndex(
+                $data,
+                $kelas,
+                $tahun,
+                $semester,
+                (string) ($meta['semester_ke'] ?? '')
+            );
         }
 
         $colCount = 6 + count($mapelCodes);
@@ -329,8 +343,13 @@ final class UjianImportService
      *
      * @return array<string, array<string, true>>
      */
-    private function buildRaporMapelIndex(array $data, string $kelas, string $tahunAjaran = '', string $semester = ''): array
-    {
+    private function buildRaporMapelIndex(
+        array $data,
+        string $kelas,
+        string $tahunAjaran = '',
+        string $semester = '',
+        string $semesterKe = ''
+    ): array {
         $index = [];
         foreach ($data['records'] ?? [] as $row) {
             $rowKelas = (string) ($row['kelas'] ?? '');
@@ -341,6 +360,9 @@ final class UjianImportService
                 continue;
             }
             if ($semester !== '' && strcasecmp((string) ($row['semester'] ?? ''), $semester) !== 0) {
+                continue;
+            }
+            if ($semesterKe !== '' && !RekapService::matchSemesterKeFilter((string) ($row['semester_ke'] ?? ''), $semesterKe)) {
                 continue;
             }
             $nisn = $this->normalizeNisnKey((string) (

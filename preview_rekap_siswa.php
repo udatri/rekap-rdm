@@ -10,7 +10,7 @@ Auth::guardPage();
 
 /**
  * Preview / cetak REKAP HASIL BELAJAR per siswa.
- * Query: id (NISN), print=1 untuk auto-print
+ * Query: id (NISN), tahun_ajaran, semester_ke, ujian_kolom, kelas, print=1 untuk auto-print
  */
 try {
     $id = trim((string) ($_GET['id'] ?? ''));
@@ -18,9 +18,17 @@ try {
         throw new InvalidArgumentException('Pilih siswa (NISN) terlebih dahulu.');
     }
 
+    $q = [
+        'id' => $id,
+        'tahun_ajaran' => trim((string) ($_GET['tahun_ajaran'] ?? '')),
+        'semester_ke' => trim((string) ($_GET['semester_ke'] ?? '')),
+        'ujian_kolom' => trim((string) ($_GET['ujian_kolom'] ?? '')),
+        'kelas' => trim((string) ($_GET['kelas'] ?? '')),
+    ];
+
     $service = new RekapService();
     $data = $service->ensureData(false);
-    $rekap = $service->rekapPerSiswa($data, ['id' => $id]);
+    $rekap = $service->rekapPerSiswa($data, $q);
     if (!empty($rekap['error']) || empty($rekap['siswa']['hasil_belajar'])) {
         throw new InvalidArgumentException($rekap['error'] ?? 'Data siswa tidak ditemukan.');
     }
@@ -35,6 +43,43 @@ try {
             $kktpMap[$kode] = (float) $t['nilai'];
         }
     }
+    $slotLabels = [
+        'x_ganjil' => ['X', 'Ganjil'],
+        'x_genap' => ['X', 'Genap'],
+        'xi_ganjil' => ['XI', 'Ganjil'],
+        'xi_genap' => ['XI', 'Genap'],
+        'xii_ganjil' => ['XII', 'Ganjil'],
+        'xii_genap' => ['XII', 'Genap'],
+    ];
+    $allSlots = array_keys($slotLabels);
+    $semesterKeFilter = trim((string) ($_GET['semester_ke'] ?? ($hb['semester_ke_filter'] ?? '')));
+    $visibleSlots = RekapService::allowedHasilBelajarSlots($semesterKeFilter) ?? $allSlots;
+    $filteredView = $semesterKeFilter !== '';
+    $ujianKolomFilter = trim((string) ($_GET['ujian_kolom'] ?? ''));
+    // Tidak dicentang = sembunyikan kolom praktek & teori
+    $ujianKolom = [
+        'praktek' => false,
+        'teori' => false,
+    ];
+    if ($ujianKolomFilter !== '') {
+        $parts = array_map(static fn ($s) => strtolower(trim($s)), explode(',', $ujianKolomFilter));
+        $ujianKolom = [
+            'praktek' => in_array('praktek', $parts, true),
+            'teori' => in_array('teori', $parts, true),
+        ];
+    }
+    $slotShort = [
+        'x_ganjil' => 'S1',
+        'x_genap' => 'S2',
+        'xi_ganjil' => 'S3',
+        'xi_genap' => 'S4',
+        'xii_ganjil' => 'S5',
+        'xii_genap' => 'S6',
+    ];
+    $tableCols = 2 + count($visibleSlots) + 1
+        + ($ujianKolom['praktek'] ? 1 : 0)
+        + ($ujianKolom['teori'] ? 1 : 0)
+        + 1;
     $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 
     $fmt = static function ($v): string {
@@ -42,6 +87,13 @@ try {
             return '';
         }
         return number_format((float) round((float) $v), 0, ',', '');
+    };
+
+    $fmt1 = static function ($v): string {
+        if ($v === null || $v === '' || !is_numeric($v)) {
+            return '';
+        }
+        return number_format((float) round((float) $v, 1), 1, ',', '');
     };
 
     $esc = static fn (string $t): string => htmlspecialchars($t, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -59,14 +111,6 @@ try {
         return ' nilai-excel';
     };
 
-    $slotLabels = [
-        'x_ganjil' => ['X', 'Ganjil'],
-        'x_genap' => ['X', 'Genap'],
-        'xi_ganjil' => ['XI', 'Ganjil'],
-        'xi_genap' => ['XI', 'Genap'],
-        'xii_ganjil' => ['XII', 'Ganjil'],
-        'xii_genap' => ['XII', 'Genap'],
-    ];
     $slotTingkat = [
         'x_ganjil' => 'X', 'x_genap' => 'X',
         'xi_ganjil' => 'XI', 'xi_genap' => 'XI',
@@ -221,6 +265,7 @@ try {
     table.rekap .col-akhir-teori { background: #1e3a5f !important; color: #f8fafc; font-weight: 700; }
     table.rekap .nilai-excel { color: #111; font-weight: 600; }
     table.rekap .nilai-bawah-kktp { color: #c62828 !important; font-weight: 700; }
+    table.rekap .slot-off { background: #f5f5f5 !important; color: #bbb; }
     thead .col-akhir { background: #f3e4d2; }
     .note {
       margin-top: 0.65rem;
@@ -308,24 +353,51 @@ try {
 
     <table class="rekap">
       <colgroup>
+        <col style="width:3.2%">
         <col class="mapel">
-        <?php foreach ($slotLabels as $_): ?>
+        <?php foreach ($visibleSlots as $_): ?>
           <col style="width:5.2%">
         <?php endforeach; ?>
         <col style="width:6.5%">
+        <?php if ($ujianKolom['praktek']): ?>
         <col style="width:7%">
+        <?php endif; ?>
+        <?php if ($ujianKolom['teori']): ?>
         <col style="width:6.5%">
+        <?php endif; ?>
         <col style="width:6.5%">
       </colgroup>
       <thead>
+        <?php if ($filteredView): ?>
         <tr>
+          <th rowspan="2">No</th>
+          <th rowspan="2">Mata Pelajaran</th>
+          <?php foreach ($visibleSlots as $slot): ?>
+            <th rowspan="2"><?= $esc($slotShort[$slot] ?? $slot) ?></th>
+          <?php endforeach; ?>
+          <th rowspan="2">Rata-rata</th>
+          <?php if ($ujianKolom['praktek']): ?>
+          <th rowspan="2">Nilai Ujian Praktek</th>
+          <?php endif; ?>
+          <?php if ($ujianKolom['teori']): ?>
+          <th rowspan="2">Nilai Ujian</th>
+          <?php endif; ?>
+          <th rowspan="2" class="col-akhir">Nilai Akhir</th>
+        </tr>
+        <?php else: ?>
+        <tr>
+          <th rowspan="2">No</th>
           <th rowspan="2">Mata Pelajaran</th>
           <th colspan="2">X</th>
           <th colspan="2">XI</th>
           <th colspan="2">XII</th>
           <th rowspan="2">Rata-rata</th>
+          <?php if ($ujianKolom['praktek']): ?>
           <th rowspan="2">Nilai Ujian Praktek</th>
+          <?php endif; ?>
+          <?php if ($ujianKolom['teori']): ?>
           <th rowspan="2">Nilai Ujian</th>
+          <?php endif; ?>
           <th rowspan="2" class="col-akhir">Nilai Akhir</th>
         </tr>
         <tr>
@@ -333,12 +405,14 @@ try {
           <th>Ganjil</th><th>Genap</th>
           <th>Ganjil</th><th>Genap</th>
         </tr>
+        <?php endif; ?>
       </thead>
       <tbody>
         <?php
         $paiCodes = ['QH', 'AA', 'FIK', 'SKI'];
+        $mapelNo = 0;
         foreach ($hb['kelompok'] as $g):
-            echo '<tr class="group"><td colspan="11">' . $esc($g['judul']) . '</td></tr>';
+            echo '<tr class="group"><td colspan="' . $tableCols . '">' . $esc($g['judul']) . '</td></tr>';
 
             $rows = $g['rows'];
             $paiRows = [];
@@ -352,26 +426,52 @@ try {
             }
 
             if ($paiRows !== []) {
-                echo '<tr class="subhead"><td colspan="11">Pendidikan Agama Islam dan Budi Pekerti</td></tr>';
+                echo '<tr class="subhead"><td colspan="' . $tableCols . '">Pendidikan Agama Islam dan Budi Pekerti</td></tr>';
                 foreach ($paiRows as $r) {
-                    renderHasilRow($r, $fmt, $esc, $scoreClass, $slotTingkat, $tingkatAkhir);
+                    $mapelNo++;
+                    renderHasilRow($r, $fmt, $esc, $scoreClass, $slotTingkat, $tingkatAkhir, $visibleSlots, $ujianKolom, $mapelNo);
                 }
             }
             foreach ($otherRows as $r) {
-                renderHasilRow($r, $fmt, $esc, $scoreClass, $slotTingkat, $tingkatAkhir);
+                $mapelNo++;
+                renderHasilRow($r, $fmt, $esc, $scoreClass, $slotTingkat, $tingkatAkhir, $visibleSlots, $ujianKolom, $mapelNo);
             }
         endforeach;
         ?>
         <tr class="jumlah">
-          <td colspan="7" style="text-align:right">Jumlah</td>
+          <td></td>
+          <td style="text-align:right">Jumlah</td>
+          <?php foreach ($visibleSlots as $slot): ?>
+            <td class="num"><?= $esc($fmt($hb['jumlah_slot'][$slot] ?? null)) ?></td>
+          <?php endforeach; ?>
           <td class="num"><?= $esc($fmt($hb['jumlah_rataan'])) ?></td>
+          <?php if ($ujianKolom['praktek']): ?>
           <td></td>
+          <?php endif; ?>
+          <?php if ($ujianKolom['teori']): ?>
           <td></td>
+          <?php endif; ?>
           <td class="num col-akhir"><?= $esc($fmt($hb['jumlah_akhir'])) ?></td>
+        </tr>
+        <tr class="jumlah">
+          <td></td>
+          <td style="text-align:right">Rataan</td>
+          <?php foreach ($visibleSlots as $slot): ?>
+            <td class="num"><?= $esc($fmt1($hb['rataan_slot'][$slot] ?? null)) ?></td>
+          <?php endforeach; ?>
+          <td class="num"><?= $esc($fmt1($hb['rataan_rataan'] ?? null)) ?></td>
+          <?php if ($ujianKolom['praktek']): ?>
+          <td></td>
+          <?php endif; ?>
+          <?php if ($ujianKolom['teori']): ?>
+          <td></td>
+          <?php endif; ?>
+          <td class="num col-akhir"><?= $esc($fmt1($hb['rataan_akhir'] ?? null)) ?></td>
         </tr>
       </tbody>
     </table>
 
+    <?php if (!empty($ujianKolom['teori'])): ?>
     <p class="note">
       Nilai akhir = gabungan rataan rapor
       (<?= $esc((string) ($hb['bobot']['rataan'] ?? 60)) ?>%)
@@ -379,6 +479,7 @@ try {
       + ujian (<?= $esc((string) ($hb['bobot']['teori'] ?? 20)) ?>%)
       sesuai bobot nilai ijazah. Kolom kosong = tidak ada nilai.
     </p>
+    <?php endif; ?>
 
     <div class="ttd">
       <div class="ttd-spacer"></div>
@@ -400,20 +501,33 @@ try {
 </body>
 </html>
 <?php
-function renderHasilRow(array $r, callable $fmt, callable $esc, callable $scoreClass, array $slotTingkat, string $tingkatAkhir): void
-{
-    $slots = ['x_ganjil', 'x_genap', 'xi_ganjil', 'xi_genap', 'xii_ganjil', 'xii_genap'];
+function renderHasilRow(
+    array $r,
+    callable $fmt,
+    callable $esc,
+    callable $scoreClass,
+    array $slotTingkat,
+    string $tingkatAkhir,
+    array $visibleSlots,
+    array $ujianKolom = ['praktek' => false, 'teori' => false],
+    int $no = 0
+): void {
     echo '<tr>';
+    echo '<td class="num">' . $esc((string) $no) . '</td>';
     echo '<td class="mapel">' . $esc($r['nama']) . '</td>';
-    foreach ($slots as $slot) {
+    foreach ($visibleSlots as $slot) {
         $v = $r['nilai'][$slot] ?? null;
         $cls = $scoreClass($v, $slotTingkat[$slot] ?? null);
         echo '<td class="num' . $cls . '">' . $esc($fmt($v)) . '</td>';
     }
     $rataan = $r['rataan'] ?? null;
     echo '<td class="num' . $scoreClass($rataan, $tingkatAkhir) . '">' . $esc($fmt($rataan)) . '</td>';
-    echo '<td class="num">' . $esc($fmt($r['ujian_praktek'] ?? null)) . '</td>';
-    echo '<td class="num">' . $esc($fmt($r['ujian'] ?? null)) . '</td>';
+    if (!empty($ujianKolom['praktek'])) {
+        echo '<td class="num">' . $esc($fmt($r['ujian_praktek'] ?? null)) . '</td>';
+    }
+    if (!empty($ujianKolom['teori'])) {
+        echo '<td class="num">' . $esc($fmt($r['ujian'] ?? null)) . '</td>';
+    }
     $hasTeori = !empty($r['has_teori']) || (($r['ujian'] ?? null) !== null && $r['ujian'] !== '');
     $akhirClass = $hasTeori ? 'col-akhir col-akhir-teori' : 'col-akhir col-akhir-pending';
     echo '<td class="num ' . $akhirClass . '">' . $esc($fmt($r['nilai_akhir'] ?? null)) . '</td>';

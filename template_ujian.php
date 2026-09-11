@@ -46,6 +46,7 @@ if ($id !== '') {
         'kelas' => $_GET['kelas'] ?? '',
         'tahun_ajaran' => $_GET['tahun_ajaran'] ?? '',
         'semester' => $_GET['semester'] ?? '',
+        'semester_ke' => $_GET['semester_ke'] ?? '',
         'tanggal' => $_GET['tanggal'] ?? date('Y-m-d'),
         'penguji' => $_GET['penguji'] ?? '',
         'keterangan' => '',
@@ -62,6 +63,7 @@ if ($id !== '') {
                 'kelas' => $kelas,
                 'tahun_ajaran' => $ujian['tahun_ajaran'],
                 'semester' => $ujian['semester'],
+                'semester_ke' => $ujian['semester_ke'] ?? '',
             ]);
             foreach ($siswa as $s) {
                 $ujian['siswa'][] = [

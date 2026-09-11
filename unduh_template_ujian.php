@@ -26,6 +26,7 @@ try {
         'kelas' => trim((string) ($_GET['kelas'] ?? '')),
         'tahun_ajaran' => trim((string) ($_GET['tahun_ajaran'] ?? '')),
         'semester' => trim((string) ($_GET['semester'] ?? '')),
+        'semester_ke' => trim((string) ($_GET['semester_ke'] ?? '')),
         'tanggal' => trim((string) ($_GET['tanggal'] ?? date('Y-m-d'))),
         'penguji' => '',
         'keterangan' => trim((string) ($_GET['keterangan'] ?? '')),
@@ -78,7 +79,13 @@ try {
 
     $importer = $service->ujianImportService();
     // Urutkan sesuai daftar rapor kelas, tetap hanya yang dipilih
-    $available = $importer->mapelForKelas($data, $meta['kelas']);
+    $available = $importer->mapelForKelas(
+        $data,
+        $meta['kelas'],
+        $meta['tahun_ajaran'],
+        $meta['semester'],
+        $meta['semester_ke']
+    );
     $order = array_flip($available !== [] ? $available : array_keys(UjianStore::MAPEL));
     usort($selected, static function ($a, $b) use ($order) {
         return ($order[$a] ?? 1000) <=> ($order[$b] ?? 1000);
