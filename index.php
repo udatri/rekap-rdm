@@ -183,6 +183,6 @@ $csrf = Security::csrfToken();
       <p>Sumber data: folder <code>semua/</code> · Filter: tahun ajaran, semester, kelas, ID siswa</p>
     </footer>
   </div>
-  <script src="assets/app.js?v=20260911j" defer></script>
+  <script src="assets/app.js?v=20260912a" defer></script>
 </body>
 </html>

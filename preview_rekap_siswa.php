@@ -207,6 +207,13 @@ try {
     .kop-text {
       text-align: center;
     }
+    .kop-dinas {
+      font-size: 10pt;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.15rem;
+    }
     .kop-nama {
       font-size: 14pt;
       font-weight: 700;
@@ -438,6 +445,12 @@ try {
         <img class="logo" src="<?= $esc($logoUrl) ?>" alt="Logo">
       <?php endif; ?>
       <div class="kop-text">
+        <?php
+          $dinasKop = trim((string) ($hb['sekolah']['dinas'] ?? ''));
+        ?>
+        <?php if ($dinasKop !== ''): ?>
+          <div class="kop-dinas"><?= $esc(strtoupper($dinasKop)) ?></div>
+        <?php endif; ?>
         <div class="kop-nama"><?= $esc(strtoupper($hb['madrasah'])) ?></div>
         <?php
           $alamatKop = trim((string) ($hb['sekolah']['alamat'] ?? ''));
@@ -713,6 +726,9 @@ try {
         <img class="logo" src="<?= $esc($logoUrl) ?>" alt="Logo">
       <?php endif; ?>
       <div class="kop-text">
+        <?php if (!empty($dinasKop)): ?>
+          <div class="kop-dinas"><?= $esc(strtoupper($dinasKop)) ?></div>
+        <?php endif; ?>
         <div class="kop-nama"><?= $esc(strtoupper($madrasahNama)) ?></div>
         <?php if ($alamatKop !== ''): ?>
           <div class="kop-ket"><?= $esc($alamatKop) ?></div>

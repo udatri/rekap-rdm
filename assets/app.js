@@ -2644,6 +2644,10 @@
           </div>
           <form id="formSekolah" class="sekolah-form" autocomplete="off">
             <input type="hidden" id="sekId" value="${esc(edit.id || '')}" />
+            <label class="grow">
+              <span>Dinas / instansi</span>
+              <input type="text" id="sekDinas" maxlength="160" value="${esc(edit.dinas || '')}" placeholder="KEMENTERIAN AGAMA REPUBLIK INDONESIA" />
+            </label>
             <label>
               <span>ID sekolah</span>
               <input type="text" value="${esc(edit.id || '—')}" readonly disabled />
@@ -2712,10 +2716,10 @@
       : (state.sekolahEditId || aktif.id || '');
     const edit = editingId
       ? (list.find((s) => s.id === editingId) || {
-        id: '', nama: '', kepala_nama: '', kepala_nip: '', alamat: '', tempat_cetak: '', tanggal_cetak: '', keterangan: '', logo_url: '',
+        id: '', nama: '', dinas: '', kepala_nama: '', kepala_nip: '', alamat: '', tempat_cetak: '', tanggal_cetak: '', keterangan: '', logo_url: '',
       })
       : {
-        id: '', nama: '', kepala_nama: '', kepala_nip: '', alamat: '', tempat_cetak: '', tanggal_cetak: '', keterangan: '', logo_url: '',
+        id: '', nama: '', dinas: '', kepala_nama: '', kepala_nip: '', alamat: '', tempat_cetak: '', tanggal_cetak: '', keterangan: '', logo_url: '',
       };
 
     const rows = list.map((s, i) => `<tr class="${s.current ? 'aktif-row' : ''}">
@@ -2817,6 +2821,10 @@
         </div>
         <form id="formSekolah" class="sekolah-form" autocomplete="off">
           <input type="hidden" id="sekId" value="${esc(edit.id || '')}" />
+          <label class="grow">
+            <span>Dinas / instansi</span>
+            <input type="text" id="sekDinas" maxlength="160" value="${esc(edit.dinas || '')}" placeholder="KEMENTERIAN AGAMA REPUBLIK INDONESIA" />
+          </label>
           <label>
             <span>ID sekolah</span>
             <input type="text" value="${esc(edit.id || '(otomatis saat simpan)')}" readonly disabled />
@@ -3731,6 +3739,7 @@
       e.preventDefault();
       const payload = {
         id: $('#sekId').value.trim(),
+        dinas: $('#sekDinas')?.value.trim() || '',
         nama: $('#sekNama').value.trim(),
         kepala_nama: $('#sekKepala').value.trim(),
         kepala_nip: $('#sekNip').value.trim(),

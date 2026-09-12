@@ -544,7 +544,7 @@ final class SekolahStore
 
     /**
      * @param array{
-     *   id?:string,nama?:string,kepala_nama?:string,kepala_nip?:string,
+     *   id?:string,nama?:string,dinas?:string,kepala_nama?:string,kepala_nip?:string,
      *   alamat?:string,tempat_cetak?:string,tanggal_cetak?:string,keterangan?:string
      * } $input
      */
@@ -560,6 +560,11 @@ final class SekolahStore
             throw new InvalidArgumentException('Nama sekolah terlalu panjang.');
         }
 
+        $dinas = trim((string) ($input['dinas'] ?? ''));
+        if (mb_strlen($dinas) > 160) {
+            throw new InvalidArgumentException('Nama dinas terlalu panjang (maks. 160 karakter).');
+        }
+
         $alamat = trim((string) ($input['alamat'] ?? ''));
         if (mb_strlen($alamat) > 300) {
             throw new InvalidArgumentException('Alamat terlalu panjang (maks. 300 karakter).');
@@ -567,6 +572,7 @@ final class SekolahStore
 
         $fields = [
             'nama' => $nama,
+            'dinas' => $dinas,
             'kepala_nama' => trim((string) ($input['kepala_nama'] ?? '')),
             'kepala_nip' => trim((string) ($input['kepala_nip'] ?? '')),
             'alamat' => $alamat,
@@ -865,6 +871,7 @@ final class SekolahStore
         return [
             'id' => '',
             'nama' => '',
+            'dinas' => '',
             'kepala_nama' => '',
             'kepala_nip' => '',
             'alamat' => '',
