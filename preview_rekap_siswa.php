@@ -289,6 +289,109 @@ try {
       white-space: nowrap;
     }
     .ttd-space { height: 22mm; }
+
+    /* Halaman 2: Surat Keterangan Peringkat */
+    .sheet-peringkat {
+      width: 210mm;
+      min-height: 297mm;
+      max-width: 100%;
+      margin: 1rem auto 2rem;
+      background: #fff;
+      padding: 18mm 18mm 16mm;
+      box-shadow: 0 8px 28px rgba(0,0,0,.12);
+      font-size: 12pt;
+      page: peringkat;
+    }
+    .peringkat-title {
+      margin: 0;
+      text-align: center;
+      font-size: 16pt;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: underline;
+    }
+    .peringkat-nomor {
+      margin: 0.35rem 0 1.1rem;
+      text-align: center;
+      font-size: 11pt;
+    }
+    .peringkat-nomor input,
+    .peringkat-form input,
+    .peringkat-table input {
+      font: inherit;
+      color: inherit;
+      border: 0;
+      border-bottom: 1px dotted #999;
+      background: transparent;
+      padding: 0.05rem 0.15rem;
+      min-width: 2.5rem;
+    }
+    .peringkat-nomor input { width: 16rem; text-align: center; }
+    .peringkat-lead { margin: 0 0 0.75rem; }
+    .peringkat-form {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 0.85rem 1cm;
+    }
+    .peringkat-form td { padding: 0.18rem 0.2rem; vertical-align: baseline; }
+    .peringkat-form .lab { width: 9.5rem; white-space: nowrap; }
+    .peringkat-form .sep { width: 0.8rem; }
+    .peringkat-form .val { min-width: 12rem; }
+    .peringkat-form .val input { width: 100%; max-width: 22rem; }
+    .peringkat-form .nama-val { font-weight: 700; text-transform: uppercase; }
+    .peringkat-intro { margin: 0.35rem 0 0.85rem; }
+    .peringkat-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.5rem 0 1.25rem;
+      font-size: 11pt;
+    }
+    .peringkat-table th,
+    .peringkat-table td {
+      border: 1px solid #222;
+      padding: 0.35rem 0.5rem;
+      vertical-align: middle;
+      text-align: center;
+    }
+    .peringkat-table thead th {
+      text-align: center;
+      font-weight: 700;
+      background: #f7f7f7;
+    }
+    .peringkat-table .col-sem { width: 28%; }
+    .peringkat-table .col-tahun { width: 28%; }
+    .peringkat-table .col-rank { width: 44%; white-space: nowrap; }
+    .peringkat-table input {
+      width: 90%;
+      max-width: 12rem;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .peringkat-table .col-rank input {
+      width: 3.5rem;
+      min-width: 3.5rem;
+      max-width: 5rem;
+      margin-left: 0.25rem;
+    }
+    .peringkat-ttd {
+      display: flex;
+      margin-top: 1.25rem;
+      page-break-inside: avoid;
+    }
+    .peringkat-ttd .ttd-box { margin-right: 1.5cm; }
+    .peringkat-ttd input {
+      font: inherit;
+      color: inherit;
+      border: 0;
+      border-bottom: 1px dotted #999;
+      background: transparent;
+      padding: 0.05rem 0.15rem;
+      text-align: center;
+      width: 100%;
+      max-width: 14rem;
+    }
+
     @media print {
       body { background: #fff; }
       .toolbar { display: none !important; }
@@ -297,8 +400,25 @@ try {
         margin: 0;
         padding: 0;
         box-shadow: none;
+        page-break-after: always;
+      }
+      .sheet-peringkat {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 8mm 10mm;
+        box-shadow: none;
+        page-break-before: always;
+      }
+      .peringkat-nomor input,
+      .peringkat-form input,
+      .peringkat-table input,
+      .peringkat-ttd input {
+        border: 0 !important;
+        outline: none;
       }
       @page { size: A4 landscape; margin: 10mm; }
+      @page peringkat { size: A4 portrait; margin: 14mm; }
     }
   </style>
 </head>
@@ -485,6 +605,204 @@ try {
       <div class="ttd-spacer"></div>
       <div class="ttd-box">
         <p><?= $esc((string) ($cetak['tempat_tanggal'] ?? '')) ?></p>
+        <p>Kepala Madrasah,</p>
+        <div class="ttd-space"></div>
+        <p class="ttd-nama"><strong><?= $esc((string) ($cetak['kepala_nama'] !== '' ? $cetak['kepala_nama'] : '……………………………')) ?></strong></p>
+        <?php if (($cetak['kepala_nip'] ?? '') !== ''): ?>
+          <p>NIP. <?= $esc((string) $cetak['kepala_nip']) ?></p>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+
+  <?php
+    $madrasahNama = (string) ($hb['madrasah'] ?? '');
+    $tahunAkhir = '';
+    $peringkatRows = [];
+    $allowedKe = null;
+    if ($semesterKeFilter !== '') {
+        $allowedKe = [];
+        foreach (explode(',', $semesterKeFilter) as $part) {
+            $ke = (int) trim($part);
+            if ($ke > 0) {
+                $allowedKe[$ke] = true;
+            }
+        }
+    }
+    $semByKe = [];
+    foreach ($s['semesters'] ?? [] as $sem) {
+        $ke = (int) ($sem['semester_ke'] ?? 0);
+        if ($ke <= 0) {
+            continue;
+        }
+        if ($allowedKe !== null && !isset($allowedKe[$ke])) {
+            continue;
+        }
+        $semByKe[$ke] = $sem;
+        if ($tahunAkhir === '' && trim((string) ($sem['tahun_ajaran'] ?? '')) !== '') {
+            $tahunAkhir = (string) $sem['tahun_ajaran'];
+        }
+    }
+    // Urutkan sesuai semester terpilih / S1–S6
+    $keList = $allowedKe !== null ? array_keys($allowedKe) : range(1, 6);
+    sort($keList);
+    foreach ($keList as $ke) {
+        $sem = $semByKe[$ke] ?? null;
+        if ($sem === null) {
+            // tetap tampilkan baris kosong agar bisa diisi manual
+            $peringkatRows[] = [
+                'ke' => $ke,
+                'tahun' => '',
+                'rank' => '',
+                'jumlah_siswa' => '',
+                'kelas' => '',
+            ];
+            continue;
+        }
+        if (trim((string) ($sem['tahun_ajaran'] ?? '')) !== '') {
+            $tahunAkhir = (string) $sem['tahun_ajaran'];
+        }
+        $peringkatRows[] = [
+            'ke' => $ke,
+            'tahun' => (string) ($sem['tahun_ajaran'] ?? ''),
+            'rank' => ($sem['rank'] ?? null) !== null ? (string) (int) $sem['rank'] : '',
+            'jumlah_siswa' => ($sem['jumlah_siswa_kelas'] ?? null) !== null ? (string) (int) $sem['jumlah_siswa_kelas'] : '',
+            'kelas' => (string) ($sem['kelas'] ?? ''),
+        ];
+    }
+    $kelasSurat = (string) ($hb['kelas_akhir'] ?? ($s['kelas_akhir'] ?? ''));
+    if ($peringkatRows !== []) {
+        $lastRow = $peringkatRows[count($peringkatRows) - 1];
+        if (($lastRow['kelas'] ?? '') !== '') {
+            $kelasSurat = (string) $lastRow['kelas'];
+        }
+    }
+    $kelasSuratLabel = $kelasSurat;
+    if (preg_match('/^(XII|XI|X)\s*[.\-\s]?\s*(.*)$/i', trim($kelasSurat), $mKelas)) {
+        $tingkatNum = match (strtoupper($mKelas[1])) {
+            'X' => '10',
+            'XI' => '11',
+            'XII' => '12',
+            default => $mKelas[1],
+        };
+        $rombel = trim((string) ($mKelas[2] ?? ''));
+        $kelasSuratLabel = $tingkatNum . ($rombel !== '' ? ' ' . strtoupper($rombel) : '');
+    }
+    $jumlahSiswaDefault = '';
+    foreach (array_reverse($peringkatRows) as $pr) {
+        if (($pr['jumlah_siswa'] ?? '') !== '') {
+            $jumlahSiswaDefault = $pr['jumlah_siswa'];
+            break;
+        }
+    }
+    $tahunSurat = $tahunAkhir !== '' ? $tahunAkhir : date('Y');
+    if (preg_match('/(\d{4})\s*[\/\-]\s*(\d{4})/', $tahunSurat, $mTa)) {
+        $tahunSuratLabel = $mTa[1] . '-' . $mTa[2];
+        $tahunNomor = $mTa[2];
+    } else {
+        $tahunSuratLabel = $tahunSurat;
+        $tahunNomor = date('Y');
+    }
+    $nisSurat = $hb['nis'] !== '' ? $hb['nis'] : '—';
+    $nisnSurat = (string) ($hb['nisn'] ?? '');
+  ?>
+
+  <div class="sheet sheet-peringkat">
+    <div class="kop">
+      <?php if ($logoUrl !== ''): ?>
+        <img class="logo" src="<?= $esc($logoUrl) ?>" alt="Logo">
+      <?php endif; ?>
+      <div class="kop-text">
+        <div class="kop-nama"><?= $esc(strtoupper($madrasahNama)) ?></div>
+        <?php if ($alamatKop !== ''): ?>
+          <div class="kop-ket"><?= $esc($alamatKop) ?></div>
+        <?php endif; ?>
+        <?php if (!empty($hb['sekolah']['keterangan']) && $alamatKop !== trim((string) $hb['sekolah']['keterangan'])): ?>
+          <div class="kop-ket"><?= $esc((string) $hb['sekolah']['keterangan']) ?></div>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <h2 class="peringkat-title">Surat Keterangan Peringkat</h2>
+    <p class="peringkat-nomor">
+      No:
+      <input type="text" value="…/Ma.12.04.4/KS.02/…/<?= $esc($tahunNomor) ?>" aria-label="Nomor surat">
+    </p>
+
+    <p class="peringkat-lead">Kepala <?= $esc($madrasahNama) ?> menerangkan bahwa:</p>
+
+    <table class="peringkat-form">
+      <tr>
+        <td class="lab">nama</td><td class="sep">:</td>
+        <td class="val nama-val"><?= $esc(strtoupper($hb['nama'])) ?></td>
+      </tr>
+      <tr>
+        <td class="lab">tempat, tgl lahir</td><td class="sep">:</td>
+        <td class="val"><input type="text" value="" placeholder="……………, ……………" aria-label="Tempat tanggal lahir"></td>
+      </tr>
+      <tr>
+        <td class="lab">NIM / NISN</td><td class="sep">:</td>
+        <td class="val"><?= $esc($nisSurat) ?> / <?= $esc($nisnSurat) ?></td>
+      </tr>
+      <tr>
+        <td class="lab">NPSN</td><td class="sep">:</td>
+        <td class="val"><input type="text" value="" placeholder="……………" aria-label="NPSN"></td>
+      </tr>
+      <tr>
+        <td class="lab">kelas</td><td class="sep">:</td>
+        <td class="val"><input type="text" value="<?= $esc($kelasSuratLabel) ?>" aria-label="Kelas"></td>
+      </tr>
+      <tr>
+        <td class="lab">jumlah siswa kelas</td><td class="sep">:</td>
+        <td class="val"><input type="text" value="<?= $esc($jumlahSiswaDefault) ?>" aria-label="Jumlah siswa kelas"></td>
+      </tr>
+    </table>
+
+    <p class="peringkat-intro">
+      adalah peserta didik di <?= $esc($madrasahNama) ?> TA <?= $esc($tahunSuratLabel) ?>
+      dengan peringkat kelas sebagai berikut:
+    </p>
+
+    <table class="peringkat-table">
+      <thead>
+        <tr>
+          <th class="col-sem">Rapor Semester</th>
+          <th class="col-tahun">Tahun Pelajaran</th>
+          <th class="col-rank">Peringkat Kelas</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($peringkatRows as $pr): ?>
+          <?php
+            $tahunCell = trim((string) ($pr['tahun'] ?? ''));
+            if ($tahunCell !== '' && preg_match('/^(\d{4})\s*[\/\-]\s*(\d{4})$/', $tahunCell, $mTh)) {
+                $tahunCell = $mTh[1] . ' / ' . $mTh[2];
+            }
+            $rankVal = (string) ($pr['rank'] ?? '');
+          ?>
+          <tr>
+            <td>Semester <?= $esc((string) $pr['ke']) ?></td>
+            <td class="col-tahun">
+              <input type="text" value="<?= $esc($tahunCell) ?>" aria-label="Tahun pelajaran semester <?= $esc((string) $pr['ke']) ?>">
+            </td>
+            <td class="col-rank">
+              Peringkat
+              <input type="text" value="<?= $esc($rankVal) ?>" aria-label="Peringkat semester <?= $esc((string) $pr['ke']) ?>">
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+
+    <div class="peringkat-ttd">
+      <div class="ttd-spacer"></div>
+      <div class="ttd-box">
+        <p>
+          <input type="text"
+            value="<?= $esc((string) (($cetak['tempat'] ?? 'Sleman') . ', ……………')) ?>"
+            aria-label="Tempat dan tanggal surat"
+            style="max-width:16rem">
+        </p>
         <p>Kepala Madrasah,</p>
         <div class="ttd-space"></div>
         <p class="ttd-nama"><strong><?= $esc((string) ($cetak['kepala_nama'] !== '' ? $cetak['kepala_nama'] : '……………………………')) ?></strong></p>

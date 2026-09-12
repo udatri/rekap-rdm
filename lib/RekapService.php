@@ -812,6 +812,8 @@ final class RekapService
             ];
         }
 
+        $semDetail = $this->enrichSemesterRanks($data['records'] ?? [], $semDetail, $studentId);
+
         // Tren per mapel lintas semester (mapel yang pernah muncul)
         $subjectTrend = [];
         foreach (array_keys($allSubjects) as $subj) {
@@ -1302,6 +1304,88 @@ final class RekapService
         }
 
         return $rowKe === $filter;
+    }
+
+    /**
+     * Hitung peringkat & jumlah siswa sekelas per semester (dari jumlah nilai).
+     * Jika rank dari Excel ada, tetap dipakai; jika kosong dihitung ulang.
+     *
+     * @param list<array<string,mixed>> $allRecords
+     * @param list<array<string,mixed>> $semDetail
+     * @return list<array<string,mixed>>
+     */
+    private function enrichSemesterRanks(array $allRecords, array $semDetail, string $studentId): array
+    {
+        $wantKey = $this->studentKey($studentId);
+
+        foreach ($semDetail as &$sem) {
+            $ke = (int) ($sem['semester_ke'] ?? 0);
+            $tahun = (string) ($sem['tahun_ajaran'] ?? '');
+            $kelas = trim((string) ($sem['kelas'] ?? ''));
+            if ($ke <= 0 || $kelas === '') {
+                $sem['jumlah_siswa_kelas'] = $sem['jumlah_siswa_kelas'] ?? null;
+                continue;
+            }
+
+            $byStudent = [];
+            foreach ($allRecords as $r) {
+                if ((int) ($r['semester_ke'] ?? 0) !== $ke) {
+                    continue;
+                }
+                if ($tahun !== '' && (string) ($r['tahun_ajaran'] ?? '') !== $tahun) {
+                    continue;
+                }
+                if (strcasecmp(trim((string) ($r['kelas'] ?? '')), $kelas) !== 0) {
+                    continue;
+                }
+                $rawId = (string) (($r['nisn'] ?? '') !== '' ? $r['nisn'] : ($r['id'] ?? ''));
+                $key = $this->studentKey($rawId);
+                if ($key === '') {
+                    continue;
+                }
+                $stats = $this->recalcJumlahRata(is_array($r['scores'] ?? null) ? $r['scores'] : []);
+                $jumlah = $stats['jumlah'] ?? $r['jumlah'] ?? null;
+                $prev = $byStudent[$key] ?? null;
+                if ($prev === null
+                    || ($jumlah !== null && (($prev['jumlah'] ?? null) === null || (float) $jumlah > (float) $prev['jumlah']))
+                ) {
+                    $byStudent[$key] = [
+                        'key' => $key,
+                        'jumlah' => $jumlah !== null ? (float) $jumlah : null,
+                        'rank_excel' => $r['rank'] ?? null,
+                    ];
+                }
+            }
+
+            $peers = array_values($byStudent);
+            usort($peers, static function ($a, $b) {
+                $ja = $a['jumlah'] ?? -INF;
+                $jb = $b['jumlah'] ?? -INF;
+                if ($ja === $jb) {
+                    return strcmp((string) $a['key'], (string) $b['key']);
+                }
+                return $jb <=> $ja;
+            });
+
+            $rankMap = [];
+            $rank = 1;
+            foreach ($peers as $p) {
+                $rankMap[$p['key']] = $rank++;
+            }
+
+            $sem['jumlah_siswa_kelas'] = count($peers);
+            $excelRank = $sem['rank'] ?? null;
+            if ($excelRank !== null && $excelRank !== '' && is_numeric($excelRank)) {
+                $sem['rank'] = (int) $excelRank;
+            } elseif ($wantKey !== '' && isset($rankMap[$wantKey])) {
+                $sem['rank'] = $rankMap[$wantKey];
+            } else {
+                $sem['rank'] = null;
+            }
+        }
+        unset($sem);
+
+        return $semDetail;
     }
 
     /**
