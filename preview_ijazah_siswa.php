@@ -49,22 +49,28 @@ try {
         (string) ($s['kelas_akhir'] ?? '')
     );
     $q = static fn (string $k): string => trim((string) ($_GET[$k] ?? ''));
-    $noIjazah = IjazahPreviewHelper::placeholder($q('no_ijazah'));
-    $npsn = IjazahPreviewHelper::placeholder($q('npsn'));
-    $ttl = IjazahPreviewHelper::placeholder($q('ttl'));
+    $noIjazah = $q('no_ijazah');
+    $npsn = $q('npsn');
+    $ttl = $q('ttl');
     $tglLulus = $q('tgl_lulus');
     $tglLulusLabel = $tglLulus !== ''
-        ? IjazahPreviewHelper::formatDateEnglish($tglLulus)
-        : IjazahPreviewHelper::placeholder('');
-    $skNomor = IjazahPreviewHelper::placeholder($q('sk_nomor'), '……');
+        ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', $tglLulus)
+            ? IjazahPreviewHelper::formatDateEnglish($tglLulus)
+            : $tglLulus)
+        : '';
+    $skNomor = $q('sk_nomor');
     $skTanggal = $q('sk_tanggal');
     $skTanggalLabel = $skTanggal !== ''
-        ? IjazahPreviewHelper::formatDateEnglishLong($skTanggal)
-        : IjazahPreviewHelper::placeholder('');
-    $serial = IjazahPreviewHelper::placeholder($q('serial'));
+        ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', $skTanggal)
+            ? IjazahPreviewHelper::formatDateEnglishLong($skTanggal)
+            : $skTanggal)
+        : '';
 
     $printDate = IjazahPreviewHelper::formatDateEnglishLong((string) ($cetak['tanggal'] ?? date('Y-m-d')));
     $printPlace = trim((string) ($cetak['tempat'] ?? 'Sleman'));
+    $printPlaceDate = $q('tgl_cetak') !== ''
+        ? $q('tgl_cetak')
+        : ($printPlace . ', ' . $printDate);
     $kepala = trim((string) ($cetak['kepala_nama'] ?? ''));
     $nip = trim((string) ($cetak['kepala_nip'] ?? ''));
     $alamatRaw = trim((string) ($sekolah['alamat'] ?? $sekolah['keterangan'] ?? ''));
@@ -77,17 +83,9 @@ try {
         ? implode(', ', array_slice($alamatLines, 1))
         : '';
 
-    $skYear = $skTanggal !== ''
-        ? date('Y', strtotime($skTanggal) ?: time())
-        : '……';
-
-    $ttlPlace = '';
-    $ttlDate = '';
-    $ttlIsPlaceholder = $ttl === '……………………………';
-    if (!$ttlIsPlaceholder && str_contains($ttl, ',')) {
-        [$ttlPlace, $ttlDate] = array_map('trim', explode(',', $ttl, 2));
-    } elseif (!$ttlIsPlaceholder) {
-        $ttlPlace = $ttl;
+    $skYear = $q('sk_tahun');
+    if ($skYear === '' && $skTanggal !== '') {
+        $skYear = date('Y', strtotime($skTanggal) ?: time());
     }
 
     $garudaUrl = 'assets/ijazah/garuda-2.jpeg';
@@ -95,6 +93,19 @@ try {
     $bordirUrl = 'assets/ijazah/bordir-mandala.png';
 
     $esc = static fn (string $t): string => htmlspecialchars($t, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $editField = static function (
+        string $sync,
+        string $value,
+        string $aria,
+        string $extraClass = '',
+        string $width = ''
+    ) use ($esc): string {
+        $style = $width !== '' ? ' style="width:' . $esc($width) . '"' : '';
+        $cls = trim('edit-field ' . $extraClass);
+        return '<input type="text" class="' . $esc($cls) . '" data-sync="' . $esc($sync) . '"'
+            . ' value="' . $esc($value) . '" placeholder="……………………………"'
+            . ' aria-label="' . $esc($aria) . '"' . $style . '>';
+    };
 } catch (Throwable $e) {
     http_response_code($e instanceof InvalidArgumentException ? 400 : 500);
     echo '<!DOCTYPE html><html lang="id"><meta charset="utf-8"><title>Error</title>'
@@ -347,6 +358,50 @@ try {
     .cert-fields .value-strong {
       font-weight: 700;
       text-transform: uppercase;
+    }
+
+    .edit-field {
+      font: inherit;
+      color: inherit;
+      font-weight: inherit;
+      text-transform: inherit;
+      letter-spacing: inherit;
+      border: 0;
+      border-bottom: 1px dotted #999;
+      background: transparent;
+      padding: 0 0.1rem;
+      margin: 0;
+      min-width: 4rem;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .edit-field.edit-inline {
+      display: inline;
+      width: auto;
+      min-width: 8rem;
+      text-align: inherit;
+    }
+    .edit-field.edit-center { text-align: center; }
+    .edit-field.edit-strong {
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .edit-field.edit-wide {
+      width: 100%;
+      min-width: 0;
+    }
+    .edit-field.edit-sk {
+      min-width: 3.5rem;
+      width: 4.5rem;
+      text-align: center;
+    }
+    .edit-field.edit-sk-date {
+      min-width: 9rem;
+      width: 12rem;
+    }
+    .edit-field:focus {
+      outline: 1px solid #c9a227;
+      border-bottom-color: #c9a227;
     }
 
     .cert-legal {
@@ -609,6 +664,10 @@ try {
     @media print {
       body { background: #fff; }
       .toolbar { display: none !important; }
+      .edit-field {
+        border: 0 !important;
+        outline: none !important;
+      }
       .sheet {
         width: var(--page-w);
         height: var(--page-h);
@@ -647,7 +706,7 @@ try {
       <p class="cert-abs-center cert-t-republik">Republik Indonesia</p>
       <p class="cert-abs-center cert-t-ijazah"><?= $esc($certTitle) ?></p>
       <p class="cert-abs-center cert-t-year">School Year <?= $esc($schoolYear) ?></p>
-      <p class="cert-abs-center cert-t-degree">Degree No.: <strong><?= $esc($noIjazah) ?></strong></p>
+      <p class="cert-abs-center cert-t-degree">Degree No.: <strong><?= $editField('no_ijazah', $noIjazah, 'Degree number', 'edit-inline edit-center edit-strong', '42mm') ?></strong></p>
       <p class="cert-abs-center cert-t-declares">It hereby declares that:</p>
       <p class="cert-abs-center cert-t-name"><?= $esc(strtoupper((string) $s['nama'])) ?></p>
 
@@ -661,13 +720,7 @@ try {
           <tr>
             <td class="label">Place and date of birth</td>
             <td class="sep">:</td>
-            <td class="value">
-              <?php if ($ttlIsPlaceholder): ?>
-                <?= $esc($ttl) ?>
-              <?php else: ?>
-                <?php if ($ttlPlace !== ''): ?><span class="value-strong"><?= $esc(strtoupper($ttlPlace)) ?></span><?php endif; ?><?= ($ttlPlace !== '' && $ttlDate !== '') ? ', ' : '' ?><?= $esc($ttlDate) ?>
-              <?php endif; ?>
-            </td>
+            <td class="value"><?= $editField('ttl', $ttl, 'Place and date of birth', 'edit-wide edit-strong') ?></td>
           </tr>
           <tr>
             <td class="label">National student identification number</td>
@@ -695,20 +748,25 @@ try {
           <tr>
             <td class="label">National school principal number</td>
             <td class="sep">:</td>
-            <td class="value value-strong"><?= $esc($npsn) ?></td>
+            <td class="value"><?= $editField('npsn', $npsn, 'National school identification number', 'edit-wide edit-strong') ?></td>
           </tr>
         </table>
       </div>
 
       <p class="cert-abs cert-legal">
-        based on the decision of the head of <strong><?= $esc($madrasahUpper) ?></strong> Number <?= $esc($skNomor) ?> of
-        <?= $esc($skYear) ?> dated <?= $esc($skTanggalLabel) ?> after meeting all criterias in accordance with laws and regulations
+        based on the decision of the head of <strong><?= $esc($madrasahUpper) ?></strong> Number
+        <?= $editField('sk_nomor', $skNomor, 'SK number', 'edit-inline edit-sk') ?>
+        of
+        <?= $editField('sk_tahun', $skYear, 'SK year', 'edit-inline edit-sk') ?>
+        dated
+        <?= $editField('sk_tanggal', $skTanggalLabel, 'SK date', 'edit-inline edit-sk-date') ?>
+        after meeting all criterias in accordance with laws and regulations
       </p>
 
       <div class="cert-photo" aria-hidden="true"></div>
 
       <div class="cert-ttd">
-        <p><?= $esc($printPlace . ', ' . $printDate) ?></p>
+        <p><?= $editField('tgl_cetak', $printPlaceDate, 'Place and date', 'edit-wide') ?></p>
         <p>Head of Madrasah</p>
         <p class="ttd-nama"><?= $esc($kepala !== '' ? $kepala : '……………………………') ?></p>
         <?php if ($nip !== ''): ?>
@@ -753,7 +811,7 @@ try {
           </tr>
           <tr>
             <td class="lab">National School Identification Number</td><td class="sep">:</td>
-            <td class="val"><?= $esc($npsn) ?></td>
+            <td class="val"><?= $editField('npsn', $npsn, 'National school identification number', 'edit-wide edit-strong') ?></td>
           </tr>
           <tr>
             <td class="lab">Full Name</td><td class="sep">:</td>
@@ -761,7 +819,7 @@ try {
           </tr>
           <tr>
             <td class="lab">Place and Date of Birth</td><td class="sep">:</td>
-            <td class="val"><?= $esc($ttl) ?></td>
+            <td class="val"><?= $editField('ttl', $ttl, 'Place and date of birth', 'edit-wide') ?></td>
           </tr>
           <tr>
             <td class="lab">National Student Identification Number</td><td class="sep">:</td>
@@ -769,11 +827,11 @@ try {
           </tr>
           <tr>
             <td class="lab">Diploma Number</td><td class="sep">:</td>
-            <td class="val"><?= $esc($noIjazah) ?></td>
+            <td class="val"><?= $editField('no_ijazah', $noIjazah, 'Diploma number', 'edit-wide') ?></td>
           </tr>
           <tr>
             <td class="lab">Graduation Date</td><td class="sep">:</td>
-            <td class="val"><?= $esc($tglLulusLabel) ?></td>
+            <td class="val"><?= $editField('tgl_lulus', $tglLulusLabel, 'Graduation date', 'edit-wide') ?></td>
           </tr>
         </table>
 
@@ -833,7 +891,7 @@ try {
 
         <div class="trans-footer">
           <div class="ttd-box">
-            <p><?= $esc($printPlace . ', ' . $printDate) ?></p>
+            <p><?= $editField('tgl_cetak', $printPlaceDate, 'Place and date', 'edit-wide') ?></p>
             <p>Head of Madrasah</p>
             <div class="ttd-space"></div>
             <p><strong><?= $esc($kepala !== '' ? $kepala : '……………………………') ?></strong></p>
@@ -845,6 +903,17 @@ try {
       </div>
     </div>
   </div>
+
+  <script>
+    document.querySelectorAll('.edit-field[data-sync]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.sync;
+        document.querySelectorAll(`.edit-field[data-sync="${key}"]`).forEach((other) => {
+          if (other !== el) other.value = el.value;
+        });
+      });
+    });
+  </script>
 
   <?php if ($autoPrint): ?>
   <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
