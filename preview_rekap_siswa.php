@@ -402,58 +402,28 @@ try {
     @media print {
       body { background: #fff; }
       .toolbar { display: none !important; }
+      /* Samakan ukuran dengan preview layar (jangan mengecilkan font) */
       .sheet {
         width: auto;
+        max-width: none;
         margin: 0;
-        padding: 0;
+        padding: 2mm 0 0;
         box-shadow: none;
       }
       .sheet:not(.sheet-peringkat) {
         page-break-after: always;
         break-after: page;
       }
-      .sheet .kop {
-        gap: 0.65rem;
-        margin-bottom: 0.55rem;
-        padding-bottom: 0.4rem;
-      }
-      .sheet .kop .logo { width: 56px; height: 56px; }
-      .sheet .kop-dinas { font-size: 9.5pt; }
-      .sheet .kop-nama { font-size: 13pt; }
-      .sheet .kop-ket { font-size: 8.5pt; }
-      .sheet h1 {
-        margin: 0 0 0.55rem;
-        font-size: 14pt;
-      }
-      .sheet .identitas {
-        margin-bottom: 0.55rem;
-        font-size: 10.5pt;
-      }
-      .sheet table.rekap { font-size: 8.5pt; }
-      .sheet table.rekap th,
-      .sheet table.rekap td { padding: 0.14rem 0.18rem; }
-      .sheet .note {
-        margin-top: 0.3rem;
-        margin-bottom: 0;
-        font-size: 8pt;
-      }
       .sheet .ttd {
-        margin-top: 12mm;
         page-break-inside: avoid;
         break-inside: avoid;
       }
-      .sheet .ttd-box {
-        width: 95mm;
-        font-size: 10pt;
-        margin-right: 8mm;
-      }
-      .sheet .ttd-box p { margin: 0.05rem 0; }
-      .sheet .ttd-space { height: 15mm !important; }
       .sheet-peringkat {
         width: auto;
+        max-width: none;
         min-height: auto;
         margin: 0;
-        padding: 0;
+        padding: 4mm 2mm 0;
         box-shadow: none;
         page-break-before: always;
         break-before: page;
@@ -507,7 +477,8 @@ try {
       .sheet .kop-ket {
         color: #000 !important;
       }
-      @page { size: A4 portrait; margin: 10mm; }
+      /* Margin mendekati padding preview (14mm/12mm) */
+      @page { size: A4 portrait; margin: 12mm; }
       @page peringkat { size: A4 portrait; margin: 14mm; }
     }
   </style>
