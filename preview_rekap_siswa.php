@@ -286,10 +286,10 @@ try {
     }
     .ttd-spacer { flex: 1; }
     .ttd-box {
-      width: 75mm;
+      width: 95mm;
       text-align: center;
       font-size: 10pt;
-      margin-right: 1cm;
+      margin-right: 8mm;
     }
     .ttd-box p { margin: 0.08rem 0; }
     .ttd-box .ttd-nama {
@@ -443,9 +443,9 @@ try {
         break-inside: avoid;
       }
       .sheet .ttd-box {
-        width: 72mm;
+        width: 95mm;
         font-size: 10pt;
-        margin-right: 1cm;
+        margin-right: 8mm;
       }
       .sheet .ttd-box p { margin: 0.05rem 0; }
       .sheet .ttd-space { height: 8mm !important; }
