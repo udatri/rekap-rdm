@@ -465,6 +465,48 @@ try {
         border: 0 !important;
         outline: none;
       }
+      /* Cetak hitam-putih: hilangkan highlight warna */
+      .sheet,
+      .sheet-peringkat {
+        color: #000 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sheet *,
+      .sheet-peringkat * {
+        color: #000 !important;
+        border-color: #000 !important;
+        box-shadow: none !important;
+      }
+      .sheet img,
+      .sheet-peringkat img {
+        filter: grayscale(100%);
+        -webkit-filter: grayscale(100%);
+      }
+      .sheet table.rekap th,
+      .sheet table.rekap td,
+      .sheet-peringkat table th,
+      .sheet-peringkat table td {
+        background: #fff !important;
+      }
+      .sheet table.rekap thead th,
+      .sheet table.rekap .group td,
+      .sheet table.rekap .jumlah td,
+      .sheet-peringkat table thead th {
+        background: #eee !important;
+      }
+      .sheet table.rekap .col-akhir,
+      .sheet table.rekap .col-akhir-pending,
+      .sheet table.rekap .col-akhir-teori,
+      .sheet table.rekap .slot-off,
+      .sheet table.rekap .subhead td,
+      .sheet table.rekap tbody tr:nth-child(even):not(.group):not(.subhead):not(.jumlah) td {
+        background: #fff !important;
+      }
+      .sheet .note,
+      .sheet .kop-ket {
+        color: #000 !important;
+      }
       @page { size: A4 portrait; margin: 10mm; }
       @page peringkat { size: A4 portrait; margin: 14mm; }
     }
