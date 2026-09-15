@@ -281,7 +281,7 @@ try {
     }
     .ttd {
       display: flex;
-      margin-top: 0.7rem;
+      margin-top: 10mm;
       page-break-inside: avoid;
     }
     .ttd-spacer { flex: 1; }
@@ -438,7 +438,7 @@ try {
         font-size: 8pt;
       }
       .sheet .ttd {
-        margin-top: 0.45rem;
+        margin-top: 12mm;
         page-break-inside: avoid;
         break-inside: avoid;
       }
