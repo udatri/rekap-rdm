@@ -424,7 +424,7 @@ try {
         border: 0 !important;
         outline: none;
       }
-      @page { size: A4 landscape; margin: 10mm; }
+      @page { size: A4 portrait; margin: 10mm; }
       @page peringkat { size: A4 portrait; margin: 14mm; }
     }
   </style>
