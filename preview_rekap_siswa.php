@@ -295,7 +295,7 @@ try {
     .ttd-box .ttd-nama {
       white-space: nowrap;
     }
-    .ttd-space { height: 9mm; }
+    .ttd-space { height: 15mm; }
 
     /* Halaman 2: Surat Keterangan Peringkat */
     .sheet-peringkat {
@@ -448,7 +448,7 @@ try {
         margin-right: 8mm;
       }
       .sheet .ttd-box p { margin: 0.05rem 0; }
-      .sheet .ttd-space { height: 8mm !important; }
+      .sheet .ttd-space { height: 15mm !important; }
       .sheet-peringkat {
         width: auto;
         min-height: auto;
