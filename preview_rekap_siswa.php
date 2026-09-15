@@ -281,7 +281,7 @@ try {
     }
     .ttd {
       display: flex;
-      margin-top: 1.5rem;
+      margin-top: 0.7rem;
       page-break-inside: avoid;
     }
     .ttd-spacer { flex: 1; }
@@ -289,13 +289,13 @@ try {
       width: 75mm;
       text-align: center;
       font-size: 10pt;
-      margin-right: 2cm;
+      margin-right: 1cm;
     }
-    .ttd-box p { margin: 0.15rem 0; }
+    .ttd-box p { margin: 0.08rem 0; }
     .ttd-box .ttd-nama {
       white-space: nowrap;
     }
-    .ttd-space { height: 22mm; }
+    .ttd-space { height: 9mm; }
 
     /* Halaman 2: Surat Keterangan Peringkat */
     .sheet-peringkat {
@@ -407,15 +407,56 @@ try {
         margin: 0;
         padding: 0;
         box-shadow: none;
-        page-break-after: always;
       }
+      .sheet:not(.sheet-peringkat) {
+        page-break-after: always;
+        break-after: page;
+      }
+      .sheet .kop {
+        gap: 0.65rem;
+        margin-bottom: 0.55rem;
+        padding-bottom: 0.4rem;
+      }
+      .sheet .kop .logo { width: 56px; height: 56px; }
+      .sheet .kop-dinas { font-size: 9.5pt; }
+      .sheet .kop-nama { font-size: 13pt; }
+      .sheet .kop-ket { font-size: 8.5pt; }
+      .sheet h1 {
+        margin: 0 0 0.55rem;
+        font-size: 14pt;
+      }
+      .sheet .identitas {
+        margin-bottom: 0.55rem;
+        font-size: 10.5pt;
+      }
+      .sheet table.rekap { font-size: 8.5pt; }
+      .sheet table.rekap th,
+      .sheet table.rekap td { padding: 0.14rem 0.18rem; }
+      .sheet .note {
+        margin-top: 0.3rem;
+        margin-bottom: 0;
+        font-size: 8pt;
+      }
+      .sheet .ttd {
+        margin-top: 0.45rem;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .sheet .ttd-box {
+        width: 72mm;
+        font-size: 10pt;
+        margin-right: 1cm;
+      }
+      .sheet .ttd-box p { margin: 0.05rem 0; }
+      .sheet .ttd-space { height: 8mm !important; }
       .sheet-peringkat {
         width: auto;
         min-height: auto;
         margin: 0;
-        padding: 8mm 10mm;
+        padding: 0;
         box-shadow: none;
         page-break-before: always;
+        break-before: page;
       }
       .peringkat-nomor input,
       .peringkat-form input,
